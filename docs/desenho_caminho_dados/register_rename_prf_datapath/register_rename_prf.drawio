@@ -1,0 +1,170 @@
+<mxfile host="app.diagrams.net" agent="Codex" compressed="false">
+  <diagram id="register-rename-prf" name="Unified Physical Register File">
+    <mxGraphModel dx="2034" dy="742" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1900" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="state-area" parent="1" style="swimlane;html=1;rounded=1;startSize=38;horizontal=1;fillColor=#DCFCE7;swimlaneFillColor=#F6FFF8;strokeColor=#16A34A;fontColor=#14532D;fontStyle=1;fontSize=15;" value="ESTADO FÍSICO / ESPECULATIVO" vertex="1">
+          <mxGeometry height="610" width="340" x="610" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="title" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=26;fontStyle=1;fontColor=#1F2937;" value="Register Rename com Physical Register File unificado" vertex="1">
+          <mxGeometry height="40" width="760" x="40" y="25" as="geometry" />
+        </mxCell>
+        <mxCell id="rename-area" parent="1" style="swimlane;html=1;rounded=1;startSize=38;horizontal=1;fillColor=#DBEAFE;swimlaneFillColor=#F8FAFC;strokeColor=#2563EB;fontColor=#1E3A8A;fontStyle=1;fontSize=15;" value="RENAME / ALOCAÇÃO" vertex="1">
+          <mxGeometry height="610" width="550" x="30" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="e-d-rob" edge="1" parent="rename-area" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#2563EB;endArrow=block;endFill=1;fontSize=12;fontColor=#1E3A8A;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=0;entryX=0;entryY=0.5;" value="aloca entrada">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="125" y="60" />
+              <mxPoint x="560.03" y="60" />
+              <mxPoint x="560.03" y="144.97" />
+            </Array>
+            <mxPoint x="125" y="275" as="sourcePoint" />
+            <mxPoint x="620" y="145" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="execution-area" parent="1" style="swimlane;html=1;rounded=1;startSize=38;horizontal=1;fillColor=#FEE2E2;swimlaneFillColor=#FFF7F7;strokeColor=#DC2626;fontColor=#7F1D1D;fontStyle=1;fontSize=15;" value="ISSUE / EXECUÇÃO / WRITEBACK" vertex="1">
+          <mxGeometry height="350" width="590" x="980" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=14;fontColor=#64748B;" value="Registradores arquiteturais e renomeados compartilham o mesmo PRF" vertex="1">
+          <mxGeometry height="25" width="700" x="40" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="retire-area" parent="1" style="swimlane;html=1;rounded=1;startSize=38;horizontal=1;fillColor=#EDE9FE;swimlaneFillColor=#FAF8FF;strokeColor=#7C3AED;fontColor=#4C1D95;fontStyle=1;fontSize=15;" value="RETIREMENT" vertex="1">
+          <mxGeometry height="350" width="230" x="1600" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="decode" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DBEAFE;strokeColor=#2563EB;strokeWidth=2;fontStyle=1;fontSize=15;" value="Decode / Rename" vertex="1">
+          <mxGeometry height="90" width="170" x="70" y="375" as="geometry" />
+        </mxCell>
+        <mxCell id="mapping" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;strokeWidth=2;fontStyle=1;fontSize=15;" value="Mapping Table&lt;br&gt;&lt;b&gt;AR → Physical Register&lt;/b&gt;" vertex="1">
+          <mxGeometry height="110" width="205" x="325" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="free" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;strokeWidth=2;fontStyle=1;fontSize=15;" value="Free List&lt;br&gt;&lt;b&gt;Physical Registers livres&lt;/b&gt;" vertex="1">
+          <mxGeometry height="110" width="205" x="325" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="rob" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE9FE;strokeColor=#7C3AED;strokeWidth=2;fontStyle=1;fontSize=15;" value="ROB&lt;br&gt;&lt;b&gt;ordem e estado&lt;br&gt;da instrução&lt;/b&gt;" vertex="1">
+          <mxGeometry height="110" width="260" x="650" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="prf" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#DCFCE7;strokeColor=#16A34A;strokeWidth=3;fontStyle=1;fontSize=15;" value="Unified Physical Register File&lt;br&gt;&lt;br&gt;&lt;b&gt;Architectural Registers&lt;/b&gt;&lt;br&gt;+&lt;br&gt;&lt;b&gt;Rename Registers&lt;/b&gt;" vertex="1">
+          <mxGeometry height="210" width="260" x="650" y="355" as="geometry" />
+        </mxCell>
+        <mxCell id="rs" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEDD5;strokeColor=#EA580C;strokeWidth=2;fontStyle=1;fontSize=15;" value="Reservation&lt;br&gt;Stations" vertex="1">
+          <mxGeometry height="100" width="170" x="1015" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="execution" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEE2E2;strokeColor=#DC2626;strokeWidth=2;fontStyle=1;fontSize=15;" value="Execution&lt;br&gt;Units" vertex="1">
+          <mxGeometry height="100" width="150" x="1215" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="writeback" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEE2E2;strokeColor=#DC2626;strokeWidth=2;fontStyle=1;fontSize=15;" value="Writeback" vertex="1">
+          <mxGeometry height="100" width="140" x="1400" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="commit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EDE9FE;strokeColor=#7C3AED;strokeWidth=2;fontStyle=1;fontSize=15;" value="Commit /&lt;br&gt;Retirement" vertex="1">
+          <mxGeometry height="100" width="160" x="1635" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="e-d-mapping" edge="1" parent="1" source="decode" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#2563EB;endArrow=block;endFill=1;fontSize=12;fontColor=#1E3A8A;labelBackgroundColor=#FFFFFF;" target="mapping" value="consulta fontes">
+          <mxGeometry relative="1" x="0.6522" y="-3" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-d-free" edge="1" parent="1" source="decode" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#2563EB;endArrow=block;endFill=1;fontSize=12;fontColor=#1E3A8A;labelBackgroundColor=#FFFFFF;" target="free" value="destino">
+          <mxGeometry relative="1" x="0.5852" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-d-rs" edge="1" parent="1" source="decode" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#2563EB;endArrow=block;endFill=1;fontSize=12;fontColor=#1E3A8A;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" target="rs" value="instrução + tags">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="155" y="715" />
+              <mxPoint x="1100" y="715" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-mapping-prf" edge="1" parent="1" source="mapping" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#16A34A;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;labelBackgroundColor=#FFFFFF;" target="prf" value="Physical Register tag">
+          <mxGeometry relative="1" x="0.252" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="427.47" y="330.06" />
+              <mxPoint x="779.94" y="330.06" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-free-prf" edge="1" parent="1" source="free" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#2563EB;endArrow=block;endFill=1;fontSize=12;fontColor=#1E3A8A;labelBackgroundColor=#FFFFFF;" target="prf" value="novo PReg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-free-mapping" edge="1" parent="1" source="free" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#2563EB;endArrow=block;endFill=1;fontSize=12;fontColor=#1E3A8A;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.25;entryX=1;entryY=0.75;" target="mapping" value="novo PReg">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="560" y="597.5" />
+              <mxPoint x="560" y="292.5" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-prf-rs" edge="1" parent="1" source="prf" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#16A34A;endArrow=block;endFill=1;fontSize=12;fontColor=#166534;labelBackgroundColor=#FFFFFF;" target="rs" value="operandos">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-rs-ex" edge="1" parent="1" source="rs" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#334155;endArrow=block;endFill=1;" target="execution">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-ex-wb" edge="1" parent="1" source="execution" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#334155;endArrow=block;endFill=1;" target="writeback">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-wb-prf" edge="1" parent="1" source="writeback" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#DC2626;dashed=1;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=0;entryX=0.596;entryY=0.002;entryDx=0;entryDy=0;entryPerimeter=0;" target="prf" value="resultado">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1470" y="330" />
+              <mxPoint x="805" y="330" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-wb-rob" edge="1" parent="1" source="writeback" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#DC2626;dashed=1;endArrow=block;endFill=1;fontSize=12;fontColor=#991B1B;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=0;entryX=0.623;entryY=0.005;entryDx=0;entryDy=0;entryPerimeter=0;" target="rob" value="finished">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1470" y="110" />
+              <mxPoint x="812" y="110" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-rob-commit" edge="1" parent="1" source="rob" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#7C3AED;endArrow=block;endFill=1;fontSize=12;fontColor=#5B21B6;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=0;entryX=0.5;entryY=0;" target="commit" value="instrução mais antiga pronta">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="780" y="90" />
+              <mxPoint x="1715" y="90" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-commit-mapping" edge="1" parent="1" source="commit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#7C3AED;dashed=1;endArrow=block;endFill=1;fontSize=12;fontColor=#5B21B6;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="mapping" value="confirma novo mapeamento">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1715" y="790" />
+              <mxPoint x="600" y="790" />
+              <mxPoint x="600" y="120" />
+              <mxPoint x="427" y="120" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-commit-free" edge="1" parent="1" source="commit" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#7C3AED;dashed=1;endArrow=block;endFill=1;fontSize=12;fontColor=#5B21B6;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" target="free" value="libera PReg antigo">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1715" y="760" />
+              <mxPoint x="427" y="760" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend-title" parent="1" style="text;html=1;align=left;fontSize=13;fontStyle=1;fontColor=#334155;" value="LEGENDA" vertex="1">
+          <mxGeometry height="25" width="80" x="50" y="825" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-rename" parent="1" style="text;html=1;align=left;fontSize=12;fontColor=#1E3A8A;" value="Rename / alocação" vertex="1">
+          <mxGeometry height="25" width="145" x="160" y="825" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-data" parent="1" style="text;html=1;align=left;fontSize=12;fontColor=#166534;" value="Tags / operandos" vertex="1">
+          <mxGeometry height="25" width="135" x="340" y="825" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-completion" parent="1" style="text;html=1;align=left;fontSize=12;fontColor=#991B1B;" value="Resultado / conclusão" vertex="1">
+          <mxGeometry height="25" width="155" x="510" y="825" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-commit" parent="1" style="text;html=1;align=left;fontSize=12;fontColor=#5B21B6;" value="Commit / liberação" vertex="1">
+          <mxGeometry height="25" width="150" x="700" y="825" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
