@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net" agent="Codex" version="30.2.4" compressed="false">
+  <diagram id="arf" name="ARF">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1200" pageHeight="800"><root><mxCell id="0"/><mxCell id="1" parent="0"/>
+      <mxCell id="title" value="Architectural Register File — ARF" style="text;html=1;fontSize=26;fontStyle=1;fontColor=#1F2937;" vertex="1" parent="1"><mxGeometry x="35" y="25" width="650" height="40" as="geometry"/></mxCell>
+      <mxCell id="legend" value="Entradas em azul • saídas em verde • estado confirmado dentro do bloco" style="text;html=1;fontSize=14;fontColor=#64748B;" vertex="1" parent="1"><mxGeometry x="35" y="65" width="650" height="30" as="geometry"/></mxCell>
+      <mxCell id="arf" value="ARF — 32 × XLEN bits" style="swimlane;html=1;rounded=1;startSize=45;fillColor=#DCFCE7;swimlaneFillColor=#F6FFF8;strokeColor=#16A34A;strokeWidth=2;fontColor=#14532D;fontStyle=1;fontSize=16;" vertex="1" parent="1"><mxGeometry x="320" y="130" width="560" height="520" as="geometry"/></mxCell>
+      <mxCell id="head" value="Architectural index  |  Data [XLEN-1:0]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#BBF7D0;strokeColor=#16A34A;fontStyle=1;fontSize=14;" vertex="1" parent="1"><mxGeometry x="370" y="220" width="460" height="55" as="geometry"/></mxCell>
+      <mxCell id="r0" value="x0  |  0 (hardwired constant)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#4ADE80;fontStyle=1;fontSize=14;" vertex="1" parent="1"><mxGeometry x="370" y="275" width="460" height="55" as="geometry"/></mxCell>
+      <mxCell id="r1" value="x1  |  data[XLEN-1:0]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F0FDF4;strokeColor=#4ADE80;fontSize=14;" vertex="1" parent="1"><mxGeometry x="370" y="330" width="460" height="55" as="geometry"/></mxCell>
+      <mxCell id="r2" value="x2  |  data[XLEN-1:0]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#4ADE80;fontSize=14;" vertex="1" parent="1"><mxGeometry x="370" y="385" width="460" height="55" as="geometry"/></mxCell>
+      <mxCell id="rx" value="…  |  …" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F0FDF4;strokeColor=#4ADE80;fontSize=14;" vertex="1" parent="1"><mxGeometry x="370" y="440" width="460" height="55" as="geometry"/></mxCell>
+      <mxCell id="r31" value="x31  |  data[XLEN-1:0]" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#4ADE80;fontSize=14;" vertex="1" parent="1"><mxGeometry x="370" y="495" width="460" height="55" as="geometry"/></mxCell>
+      <mxCell id="note" value="Contém somente o estado arquitetural confirmado; escrita ocorre no commit." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F0FDF4;strokeColor=#4ADE80;fontSize=13;" vertex="1" parent="1"><mxGeometry x="370" y="575" width="460" height="50" as="geometry"/></mxCell>
+      <mxCell id="in1" value="READ PORT 1&lt;br&gt;rs1 index" style="text;html=1;align=right;fontSize=13;fontStyle=1;fontColor=#1E3A8A;" vertex="1" parent="1"><mxGeometry x="45" y="180" width="190" height="45" as="geometry"/></mxCell>
+      <mxCell id="in1b" value="READ PORT 2&lt;br&gt;rs2 index" style="text;html=1;align=right;fontSize=13;fontStyle=1;fontColor=#1E3A8A;" vertex="1" parent="1"><mxGeometry x="45" y="245" width="190" height="45" as="geometry"/></mxCell>
+      <mxCell id="in2" value="commit rd&lt;br&gt;write index" style="text;html=1;align=right;fontSize=13;fontColor=#1E3A8A;" vertex="1" parent="1"><mxGeometry x="45" y="340" width="190" height="45" as="geometry"/></mxCell>
+      <mxCell id="in3" value="commit data" style="text;html=1;align=right;fontSize=13;fontColor=#1E3A8A;" vertex="1" parent="1"><mxGeometry x="45" y="455" width="190" height="35" as="geometry"/></mxCell>
+      <mxCell id="in4" value="commit write enable" style="text;html=1;align=right;fontSize=13;fontColor=#1E3A8A;" vertex="1" parent="1"><mxGeometry x="45" y="560" width="190" height="35" as="geometry"/></mxCell>
+      <mxCell id="out1" value="READ PORT 1&lt;br&gt;rs1 data" style="text;html=1;align=left;fontSize=13;fontStyle=1;fontColor=#166534;" vertex="1" parent="1"><mxGeometry x="955" y="255" width="180" height="45" as="geometry"/></mxCell>
+      <mxCell id="out1b" value="READ PORT 2&lt;br&gt;rs2 data" style="text;html=1;align=left;fontSize=13;fontStyle=1;fontColor=#166534;" vertex="1" parent="1"><mxGeometry x="955" y="335" width="180" height="45" as="geometry"/></mxCell>
+      <mxCell id="e1" style="edgeStyle=orthogonalEdgeStyle;strokeWidth=2;strokeColor=#2563EB;endArrow=block;endFill=1;entryX=0;entryY=.13;" edge="1" parent="1" source="in1" target="arf"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="e1b" style="edgeStyle=orthogonalEdgeStyle;strokeWidth=2;strokeColor=#2563EB;endArrow=block;endFill=1;entryX=0;entryY=.27;" edge="1" parent="1" source="in1b" target="arf"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="e2" style="edgeStyle=orthogonalEdgeStyle;strokeWidth=2;strokeColor=#2563EB;endArrow=block;endFill=1;entryX=0;entryY=.43;" edge="1" parent="1" source="in2" target="arf"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="e3" style="edgeStyle=orthogonalEdgeStyle;strokeWidth=2;strokeColor=#2563EB;endArrow=block;endFill=1;entryX=0;entryY=.66;" edge="1" parent="1" source="in3" target="arf"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="e4" style="edgeStyle=orthogonalEdgeStyle;strokeWidth=2;strokeColor=#2563EB;endArrow=block;endFill=1;entryX=0;entryY=.86;" edge="1" parent="1" source="in4" target="arf"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="e5" style="edgeStyle=orthogonalEdgeStyle;strokeWidth=2;strokeColor=#16A34A;endArrow=block;endFill=1;exitX=1;exitY=.25;" edge="1" parent="1" source="arf" target="out1"><mxGeometry relative="1" as="geometry"/></mxCell>
+      <mxCell id="e5b" style="edgeStyle=orthogonalEdgeStyle;strokeWidth=2;strokeColor=#16A34A;endArrow=block;endFill=1;exitX=1;exitY=.4;" edge="1" parent="1" source="arf" target="out1b"><mxGeometry relative="1" as="geometry"/></mxCell>
+    </root></mxGraphModel>
+  </diagram>
+</mxfile>
