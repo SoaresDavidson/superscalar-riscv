@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Datapath — drill-down</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; color:#222; }
+  #crumb { margin-bottom: 1rem; font-size: .95rem; color:#555; }
+  #crumb a { cursor: pointer; color:#06c; text-decoration: underline; }
+  #canvas { border:1px solid #ddd; border-radius:8px; padding:1rem; }
+  .hint { margin-top:1rem; font-size:.85rem; color:#888; }
+</style>
+</head>
+<body>
+  <div id="crumb"></div>
+  <div id="canvas" class="mermaid"></div>
+  <p class="hint">Clique numa unidade (Fetch, Reservation Stations, Exec) para aprofundar.</p>
+
+  <!-- build ESM: necessário para registrar o layout ELK -->
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    import elkLayouts from 'https://cdn.jsdelivr.net/npm/@mermaid-js/layout-elk@0/dist/mermaid-layout-elk.esm.min.mjs';
+
+    mermaid.registerLayoutLoaders(elkLayouts);
+    mermaid.initialize({
+      startOnLoad: false, securityLevel: 'loose', theme: 'default',
+      layout: 'elk',                       // vale para todas as views
+      elk: {
+        mergeEdges: false,                 // true junta setas paralelas
+        nodePlacementStrategy: 'BRANDES_KOEPF' // ou NETWORK_SIMPLEX, LINEAR_SEGMENTS, SIMPLE
+      }
+    });
+
+    // cada nível é um diagrama; "parent" monta a trilha do breadcrumb.
+    // note os "click NODE call goTo("...")" -> é o que dispara o drill-down.
+    const views = {
+      datapath: { label: 'Datapath', parent: null, def: `flowchart LR
+        PDC["pre-decode"] --> IC["Instruction Cache"]
+        IC --> IB["Instruction Buffer"]
+        subgraph DRD["Decode,Rename,Dispatch"]
+          DE["Decode"] --> RN["Rename / RAT"] --> DIS["Dispatch"]
+        end
+        IB --> DRD
+
+        DRD --> FIB["Floating Instruction Buffer"]
+        DRD --> IIB["Integer Instruction Buffer"]
+        DRD --> ROC["Re-order and Commit"]
+
+        FIB --> FU["Funcional Units"] ---> MI["Memory Interface"]
+        MI --> FU
+
+        IIB --> FUC["Functional Untis and Data Cache"] ---> MI
+        MI --> FUC
+        
+        FU --> FRF["Floating Register File"]
+        FRF --> FU
+        FU --> ROC
+
+        FUC --> ROC
+
+        ROC --> IRF["Integer Register File"]
+        ROC --> FRF
+        IRF --> FUC
+        FUC --> IRF
+
+        DRD ~~~ FIB
+        DRD ~~~ IIB
+        DRD ~~~ ROC
+
+        DRD ~~~ FRF
+        DRD ~~~ IRF
+
+        FU ~~~ MI 
+        FUC ~~~ MI
+
+
+        click IF call goTo("IF")
+        click RS call goTo("RS")
+        click EXU call goTo("EXU")` },
+
+      IF: { label: 'Fetch Unit', parent: 'datapath', def: `flowchart TB
+        PC["PC (64b)"] --> IC[("I-Cache")]
+        IC -->|"linha 512b"| AL["Alinhador 2-wide"]
+        BTB["BTB / Preditor"] --> MUX{{"MUX PC"}} --> PC
+        AL ==> O0["instr[0]"]
+        AL ==> O1["instr[1]"]` },
+
+      RS: { label: 'Reservation Stations', parent: 'datapath', def: `flowchart TB
+        IN["Dispatch"] --> Q["Filas por UF"]
+        Q -->|"operandos prontos"| WAKE["Wake-up / Select"]
+        CDB["CDB"] -. "tag+valor" .-> Q
+        WAKE --> ISS["Issue → UF"]` },
+
+      EXU: { label: 'Unidades de Execução', parent: 'datapath', def: `flowchart TB
+        I["Issue"] --> ALU["ALU x2"]
+        I --> MUL["MUL / DIV"]
+        I --> LSU["Load/Store Unit"]
+        ALU ==> CDB["→ CDB"]
+        MUL ==> CDB
+        LSU ==> CDB` }
+    };
+
+    let renderSeq = 0;
+
+    async function render(key) {
+      const v = views[key];
+      // breadcrumb
+      const trail = []; let k = key;
+      while (k) { trail.unshift(k); k = views[k].parent; }
+      document.getElementById('crumb').innerHTML = trail.map((t, i) =>
+        i === trail.length - 1 ? `<b>${views[t].label}</b>`
+                               : `<a data-k="${t}">${views[t].label}</a>`
+      ).join(' &rsaquo; ');
+      // diagrama (id único a cada render pra evitar cache do mermaid)
+      const { svg, bindFunctions } = await mermaid.render('g' + (++renderSeq), v.def);
+      const el = document.getElementById('canvas');
+      el.innerHTML = svg;
+      if (bindFunctions) bindFunctions(el);   // religa os click callbacks
+    }
+
+    // chamado pelos "click ... call goTo(...)"
+    window.goTo = (key) => { if (views[key]) render(key); };
+    // clique no breadcrumb pra voltar
+    document.getElementById('crumb').addEventListener('click', (e) => {
+      const k = e.target.getAttribute('data-k'); if (k) render(k);
+    });
+
+    render('datapath');
+  </script>
+</body>
+</html>
