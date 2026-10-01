@@ -1,0 +1,4 @@
+build/
+.git/
+superscalar-riscv.wiki/
+docs/
