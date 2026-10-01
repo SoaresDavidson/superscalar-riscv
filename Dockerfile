@@ -3,7 +3,7 @@
 #   docker build -t superscalar-riscv .
 #   docker run --rm -v "$PWD":/work superscalar-riscv            # make test
 #   docker run --rm -v "$PWD":/work superscalar-riscv make lint
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends iverilog verilator make findutils \
