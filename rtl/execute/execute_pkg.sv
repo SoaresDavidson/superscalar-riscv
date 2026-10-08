@@ -1,18 +1,20 @@
 // Shared types for the Execute stage (functional units).
 // Spec: wiki page Execute.md. Interface changes must update that page.
 //
+// ISA: custom 64-bit ISA, no multiplication (Decisoes-de-Projeto, decision 1).
+//
 // Open items that affect this file (see "Questoes em aberto" in Execute.md):
-//   - XLEN / REG_W: Decisoes-de-Projeto says RV32IM; Decode.md says XLEN = 64
-//     and 7-bit register specifiers. Defaults below follow Decisoes-de-Projeto
-//     (the first source of truth). Change them in ONE place when reconciled.
+//   - The full op list of the ISA is not defined yet: 32-bit variants such as
+//     RV64 `addw`, and the load/store sizes (`ld`/`sd`/`lwu`). New ops are
+//     added to exec_op_t below without renumbering the existing ones.
 //   - AGU store data and the Memory interface are not specified yet.
 package execute_pkg;
 
   // ---------------------------------------------------------------------
   // Global widths
   // ---------------------------------------------------------------------
-  parameter int unsigned XLEN  = 32;  // datapath width
-  parameter int unsigned REG_W = 5;   // architectural register specifier width
+  parameter int unsigned XLEN  = 64;  // datapath width
+  parameter int unsigned REG_W = 7;   // register specifier width (128 regs)
   parameter int unsigned AGE_W = 8;   // instruction age (program-order id)
 
   typedef logic [XLEN-1:0]  xlen_t;
@@ -55,13 +57,7 @@ package execute_pkg;
     AGU_LW     = 6'd36,
     AGU_SB     = 6'd37,
     AGU_SH     = 6'd38,
-    AGU_SW     = 6'd39,
-
-    // Multiplier
-    MUL_MUL    = 6'd48,
-    MUL_MULH   = 6'd49,
-    MUL_MULHSU = 6'd50,
-    MUL_MULHU  = 6'd51
+    AGU_SW     = 6'd39
   } exec_op_t;
 
   // ---------------------------------------------------------------------
@@ -71,8 +67,7 @@ package execute_pkg;
     FU_NONE   = 3'd0,  // not an Execute op (illegal / unknown encoding)
     FU_ALU    = 3'd1,
     FU_BRANCH = 3'd2,
-    FU_AGU    = 3'd3,
-    FU_MUL    = 3'd4
+    FU_AGU    = 3'd3
   } fu_kind_t;
 
   function automatic fu_kind_t fu_of(input exec_op_t op);
@@ -84,8 +79,6 @@ package execute_pkg;
         return FU_BRANCH;
       AGU_LB, AGU_LBU, AGU_LH, AGU_LHU, AGU_LW, AGU_SB, AGU_SH, AGU_SW:
         return FU_AGU;
-      MUL_MUL, MUL_MULH, MUL_MULHSU, MUL_MULHU:
-        return FU_MUL;
       default:
         return FU_NONE;
     endcase

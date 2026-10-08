@@ -2,7 +2,9 @@
 # compiles against every file in rtl/. A testbench signals success by printing
 # "PASS" and failure through $fatal. Test names must be unique across suites.
 
-RTL    := $(shell find rtl -name '*.sv')
+# Packages first: a file that imports a package only compiles after it.
+RTL    := $(sort $(shell find rtl -name '*_pkg.sv')) \
+          $(sort $(shell find rtl -name '*.sv' ! -name '*_pkg.sv'))
 SUITES := unit integration
 BUILD  := build
 

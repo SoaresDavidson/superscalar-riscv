@@ -19,9 +19,8 @@ module execute_pkg_tb;
     check(fu_of(BR_JALR)    == FU_BRANCH, "BR_JALR -> FU_BRANCH");
     check(fu_of(AGU_LB)     == FU_AGU,    "AGU_LB -> FU_AGU");
     check(fu_of(AGU_SW)     == FU_AGU,    "AGU_SW -> FU_AGU");
-    check(fu_of(MUL_MUL)    == FU_MUL,    "MUL_MUL -> FU_MUL");
-    check(fu_of(MUL_MULHU)  == FU_MUL,    "MUL_MULHU -> FU_MUL");
     check(fu_of(exec_op_t'(6'd63)) == FU_NONE, "unknown op -> FU_NONE");
+    check(fu_of(exec_op_t'(6'd48)) == FU_NONE, "old MUL encoding -> FU_NONE");
 
     // --- age_is_younger: plain ordering ---
     check( age_is_younger(8'd5,  8'd3), "5 is younger than 3");
