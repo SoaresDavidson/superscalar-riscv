@@ -90,8 +90,10 @@ writebacks das instruções descartadas, pois uma tag pode ser reutilizada.
 
 - Como o valor retirado chega à verificação final (decisão 13): uma porta de
   leitura `commit_tag -> commit_data` no rename ou outro caminho. Não decidido.
-- A largura atual é de **uma instrução por ciclo**; o projeto prevê largura 3,
-  que exige renomeação entre os slots do mesmo bundle e portas adicionais.
+- A largura atual é de **uma instrução por ciclo**. A interface de largura `W`
+  (bundle tudo ou nada, dependências do bundle vindas do Decode) está
+  especificada na wiki, em "Bundle de largura `W`", e ainda não foi
+  implementada.
 
 ## Implementação
 
