@@ -1,6 +1,6 @@
 # Superscalar RISC-V
 
-Dynamic (out-of-order) superscalar RV32IM core in SystemVerilog, built from
+Dynamic (out-of-order) superscalar RV64IM core in SystemVerilog, built from
 Shen & Lipasti, *Modern Processor Design: Fundamentals of Superscalar
 Processors*. The book is the conceptual reference; the wiki is the spec.
 
@@ -20,7 +20,17 @@ When code and wiki disagree, report it instead of silently picking one.
 
 ## Fixed parameters
 
-- ISA: RV32IM without C and without division (see decision 1).
+- ISA: RV64IM without C and without division. Instruction table and RV64
+  encodings in `superscalar-riscv.wiki/ISA-RV64.md`. Instructions stay 32 bits;
+  the six formats are the same as RV32.
+- Data width: `XLEN = 64` is a module parameter, never a hard-coded 64 or 32.
+  Registers, PC, immediates (sign-extended to `XLEN`), ALU, AGU and branch
+  compare all use `XLEN`. RV64 adds the `W` instructions (`ADDW`, `SLLIW`, ...:
+  operate on the low 32 bits, sign-extend the result), `LD`/`SD`/`LWU`, and
+  6-bit `shamt`.
+- Decision 1 in the wiki still says RV32IM; it is out of date. Update it with
+  the project owner before relying on it (also decision 11: `MulPipelined32Bits`
+  cannot be reused as is for 64 bits).
 - Width: 3 instructions per cycle for fetch, decode, dispatch and retire.
   Width is a module parameter, never a hard-coded 3.
 - Register rename: three variants exist in `rtl/rename/` (RRF, ROB-based,
@@ -39,7 +49,7 @@ When code and wiki disagree, report it instead of silently picking one.
 ## Commands
 
 - `make test` — every testbench; `make test-unit` / `make test-integration` —
-  one suite; `make test T=register_rename` — one test.
+  one suite; `make test T=RRF` — one test.
 - `make lint` — Verilator lint over all RTL (requires `verilator`).
 - A test with several parameter sets lists them in `PARAMS_<name>` in the
   Makefile.
@@ -67,3 +77,5 @@ When code and wiki disagree, report it instead of silently picking one.
   same change.
 - Final verification (decision 13): the same binaries run on the scalar
   RV32I pipeline and on this core, and the final architectural state must match.
+  The scalar pipeline is RV32I and this core is RV64, so that comparison needs
+  an RV64 reference model; this is not decided yet.

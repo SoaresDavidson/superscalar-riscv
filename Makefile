@@ -13,8 +13,6 @@ TESTS := $(UNIT_TESTS) $(INTEGRATION_TESTS)
 
 vpath %_tb.sv $(addprefix tb/,$(SUITES))
 
-# Parameter sets a testbench must pass; a test without an entry runs once.
-PARAMS_register_rename := MODE=0 MODE=1 MODE=2
 
 T ?= $(TESTS)
 
