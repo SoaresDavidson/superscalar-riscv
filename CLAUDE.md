@@ -61,7 +61,7 @@ When code and wiki disagree, report it instead of silently picking one.
 - Synchronous active-high `reset`; `flush` cancels speculative state.
 - Handshakes are `valid`/`ready`; a transfer happens when both are high.
 - `x0` never allocates a tag and always reads 0.
-- Identifiers and code comments in English; docs and wiki in Portuguese.
+- Identifiers in English; code comments, docs and wiki in Portuguese.
 
 ## Workflow
 

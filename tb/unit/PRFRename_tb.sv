@@ -1,17 +1,17 @@
-// PRFRename with the external ROB interface (wiki decision 14).
-// The ROB is a behavioral mock inside this testbench: it records dst_tag and
-// old_tag at dispatch, marks entries finished on writeback, and retires in
-// program order, sending commit_* to the rename only for entries with has_dest.
+// PRFRename com a interface de ROB externo (decisão 14 da wiki).
+// O ROB é um mock comportamental dentro deste testbench: registra dst_tag e
+// old_tag no dispatch, marca entradas como terminadas no writeback e retira em
+// ordem de programa, enviando commit_* ao rename só para entradas com has_dest.
 module PRFRename_tb;
     localparam int XLEN = 64;
-    localparam int ENTRIES = 35;  // 32 architectural + 3 rename tags
+    localparam int ENTRIES = 35;  // 32 arquiteturais + 3 tags de renomeação
     localparam int TAG_W = $clog2(ENTRIES);
     localparam int ROB_N = 8;
 
     logic clk = 0;
     always #5 clk = ~clk;
 
-    // DUT ports
+    // Portas do DUT
     logic reset = 1, flush = 0;
     logic dispatch_valid = 0, writes_rd = 0, rob_ready;
     logic [4:0] rs1 = 0, rs2 = 0, rd = 0;
@@ -25,10 +25,12 @@ module PRFRename_tb;
     logic commit_valid = 0;
     logic [4:0] commit_rd = 0;
     logic [TAG_W-1:0] commit_tag = 0, commit_old_tag = 0;
+    // Bundle de um slot: sempre válido, sem slot anterior do qual depender
+    logic slot_valid = 1, rs1_dep = 0, rs2_dep = 0, rd_dep = 0;
 
-    PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES)) dut (.*);
+    PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES), .W(1), .WB_N(1)) dut (.*);
 
-    // ---- ROB mock ----
+    // ---- Mock do ROB ----
     logic [4:0] m_rd[0:ROB_N-1];
     logic [TAG_W-1:0] m_tag[0:ROB_N-1], m_old[0:ROB_N-1];
     logic m_has[0:ROB_N-1], m_done[0:ROB_N-1];
@@ -42,7 +44,7 @@ module PRFRename_tb;
         if (ok !== 1'b1) $fatal(1, "PRFRename: %s", msg);
     endtask
 
-    // Presents one instruction to dispatch (not yet clocked).
+    // Apresenta uma instrução ao dispatch (ainda sem clock).
     task automatic present(input logic w, input logic [4:0] dst, s1, s2);
         dispatch_valid = 1;
         writes_rd = w;
@@ -58,7 +60,7 @@ module PRFRename_tb;
         wb_data = data;
     endtask
 
-    // Prepares retirement of the ROB head; commit_* only for writers.
+    // Prepara a retirada do head do ROB; commit_* só para escritores.
     task automatic retire;
         check(m_count != 0 && m_done[m_head], "mock: head must be finished to retire");
         commit_valid = m_has[m_head];
@@ -69,8 +71,8 @@ module PRFRename_tb;
         #1;
     endtask
 
-    // One clock: samples the dispatch transfer and writeback into the mock,
-    // clocks the DUT, then pops a retired head and clears the one-cycle pulses.
+    // Um clock: registra no mock a transferência de dispatch e o writeback,
+    // aplica o clock no DUT, depois remove o head retirado e limpa os pulsos de um ciclo.
     task automatic step;
         logic xfer;
         xfer = dispatch_valid && dispatch_ready && rob_ready;
@@ -91,7 +93,7 @@ module PRFRename_tb;
                 m_has[m_tail] = writes_rd && rd != 0;
                 m_tag[m_tail] = dst_tag;
                 m_old[m_tail] = old_tag;
-                m_done[m_tail] = !(writes_rd && rd != 0);  // no result to wait for
+                m_done[m_tail] = !(writes_rd && rd != 0);  // sem resultado a esperar
                 m_tail = (m_tail + 1) % ROB_N;
                 m_count++;
             end
@@ -111,7 +113,7 @@ module PRFRename_tb;
         reset = 0;
         #1;
 
-        // x0: reads zero, never allocates a tag.
+        // x0: lê zero, nunca aloca tag.
         present(1, 0, 0, 0);
         check(src_ready == 2'b11 && src1_data == 0 && src2_data == 0, "x0 must read as zero");
         check(dispatch_ready, "write to x0 needs no tag");
@@ -123,12 +125,12 @@ module PRFRename_tb;
         present(1, 1, 0, 0);
         check(dst_tag == t, "write to x0 must not consume a tag");
         dispatch_valid = 0;
-        // The x0 writer still occupies the ROB; it retires without a commit pulse.
+        // O escritor de x0 ainda ocupa o ROB; é retirado sem pulso de commit.
         retire();
         check(!commit_valid, "x0 writer retires without commanding the rename");
         step();
 
-        // Same register as source and destination: source sees the old mapping.
+        // Mesmo registrador como fonte e destino: a fonte vê o mapeamento antigo.
         present(1, 5, 5, 5);
         check(dispatch_ready, "first allocation");
         check(src_ready == 2'b11 && src1_data == 0, "x5 source reads architectural value");
@@ -137,12 +139,12 @@ module PRFRename_tb;
         check(a != old_tag, "new tag differs from the replaced one");
         step();
 
-        // Store reading x5: depends on the previous instruction, allocates nothing.
+        // Store lendo x5: depende da instrução anterior, não aloca nada.
         present(0, 0, 5, 0);
         check(!src_ready[0] && src1_tag == a, "RAW: store waits on tag of x5");
         step();
 
-        // ROB refuses: the rename must not allocate.
+        // ROB recusa: o rename não pode alocar.
         rob_block = 1;
         present(1, 6, 5, 0);
         check(dispatch_ready, "rename alone could accept");
@@ -155,7 +157,7 @@ module PRFRename_tb;
         c = dst_tag;
         step();
 
-        // Last free tag, then back-pressure.
+        // Última tag livre, depois back-pressure.
         present(1, 7, 0, 0);
         check(dispatch_ready, "last free tag");
         d = dst_tag;
@@ -168,7 +170,7 @@ module PRFRename_tb;
         check(dispatch_ready, "write to x0 passes without a free tag");
         dispatch_valid = 0;
 
-        // Writeback out of order: younger result readable before the older.
+        // Writeback fora de ordem: resultado mais novo legível antes do mais antigo.
         writeback(c, 66);
         step();
         present(0, 0, 6, 5);
@@ -180,14 +182,14 @@ module PRFRename_tb;
         check(src_ready == 2'b11 && src1_data == 55 && src2_data == 66, "both results ready");
         dispatch_valid = 0;
 
-        // Commit x5 (head): its old tag goes back to the free pool.
+        // Commit de x5 (head): a tag antiga volta para as livres.
         retire();
         step();
         present(1, 9, 5, 0);
         check(dispatch_ready && dst_tag == TAG_W'(5), "old tag of x5 is reused");
         check(src_ready[0] && src1_data == 55, "committed x5 still reads 55");
         e = dst_tag;
-        // Same cycle: dispatch x9 and retire the store (no commit pulse).
+        // Mesmo ciclo: dispatch de x9 e retirada do store (sem pulso de commit).
         retire();
         check(!commit_valid, "store retires without commanding the rename");
         step();
@@ -195,14 +197,14 @@ module PRFRename_tb;
         check(!dispatch_ready, "store retirement freed no tag");
         dispatch_valid = 0;
 
-        // Commit x6: frees tag 6.
+        // Commit de x6: libera a tag 6.
         retire();
         step();
         present(1, 10, 0, 0);
         check(dispatch_ready && dst_tag == TAG_W'(6), "old tag of x6 is reused");
         dispatch_valid = 0;
 
-        // Same cycle: commit x7 and dispatch a new writer of x7.
+        // Mesmo ciclo: commit de x7 e dispatch de um novo escritor de x7.
         writeback(d, 77);
         step();
         present(1, 7, 7, 0);
@@ -214,7 +216,7 @@ module PRFRename_tb;
         check(!src_ready[0] && src1_tag == f, "commit of older x7 keeps the new mapping");
         dispatch_valid = 0;
 
-        // Flush with x9 and x7 in flight: committed values come back.
+        // Flush com x9 e x7 em voo: os valores confirmados voltam.
         flush = 1;
         step();
         present(0, 0, 7, 5);
@@ -225,7 +227,7 @@ module PRFRename_tb;
               "flush restores committed x9 and x6");
         dispatch_valid = 0;
 
-        // Stale writeback of a discarded tag is ignored, then the tag is reused.
+        // Writeback atrasado de tag descartada é ignorado, depois a tag é reutilizada.
         writeback(e, 999);
         step();
         present(1, 11, 0, 0);
@@ -243,7 +245,7 @@ module PRFRename_tb;
         check(src_ready[0] && src1_data == 111, "x11 commits the new result");
         dispatch_valid = 0;
 
-        // Bypass: a source reads its tag in the same cycle as that tag's writeback.
+        // Bypass: uma fonte lê sua tag no mesmo ciclo do writeback dessa tag.
         present(1, 12, 0, 0);
         h = dst_tag;
         step();
@@ -253,10 +255,10 @@ module PRFRename_tb;
         step();
         retire();  // x12
         step();
-        retire();  // reader of x12
+        retire();  // leitor de x12
         step();
 
-        // Flush and commit in the same cycle: the commit is not speculative.
+        // Flush e commit no mesmo ciclo: o commit não é especulativo.
         present(1, 13, 0, 0);
         p = dst_tag;
         step();
@@ -266,7 +268,7 @@ module PRFRename_tb;
         check(src_ready[0] && src1_data == 131, "x13 result ready before commit");
         q = dst_tag;
         step();
-        retire();  // x13 commits while x14 is discarded
+        retire();  // x13 faz commit enquanto x14 é descartado
         check(commit_valid && commit_tag == p, "mock commits x13");
         flush = 1;
         step();
@@ -275,8 +277,8 @@ module PRFRename_tb;
         check(src2_tag == TAG_W'(14) && src2_data == 0, "discarded x14 returns to its committed tag");
         dispatch_valid = 0;
 
-        // After that flush every non-architectural tag is free exactly once:
-        // the discarded tag of x14 and the old tag of x13 come back, p does not.
+        // Depois desse flush toda tag não arquitetural está livre exatamente uma vez:
+        // a tag descartada de x14 e a tag antiga de x13 voltam, p não.
         present(1, 15, 0, 0);
         t1 = dst_tag;
         step();
@@ -295,7 +297,7 @@ module PRFRename_tb;
         check(q == t1 || q == t2 || q == t3, "discarded tag of x14 is free again");
         check(TAG_W'(13) == t1 || TAG_W'(13) == t2 || TAG_W'(13) == t3,
               "old tag of x13 is free again");
-        // Reused tags (including one that was AR) start not ready.
+        // Tags reutilizadas (inclusive uma que era AR) começam não prontas.
         present(0, 0, 15, 16);
         check(src_ready == 2'b00, "reallocated tags start not ready");
         present(0, 0, 17, 0);

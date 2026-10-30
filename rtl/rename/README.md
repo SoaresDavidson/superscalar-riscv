@@ -1,7 +1,9 @@
 # Register rename RTL
 
-As três variantes da [wiki](../../superscalar-riscv.wiki/Register-Rename.md) têm
-uma porta de dispatch, uma de writeback e uma de commit:
+`RRF` e `ROBRename` têm uma porta de dispatch, uma de writeback e uma de
+commit. `PRFRename` recebe um bundle de `W` instruções por ciclo e tem `WB_N`
+portas de writeback (veja "Bundle de largura `W`" abaixo). Variantes da
+[wiki](../../superscalar-riscv.wiki/Register-Rename.md):
 
 | Módulo | Tag | Resultado antes do commit | Estado após commit |
 |---|---|---|---|
@@ -78,10 +80,10 @@ restaurado:
 
 | Submódulo | Flush | Commit no mesmo ciclo |
 |---|---|---|
-| `PRFFreeList` | `head <= tail`, `count <= ENTRIES-32` | `commit_old_tag` entra em `tail`; `head <= next(tail)` |
-| `PRFMapTable` | `map <= committed_map` | `map[commit_rd] <= commit_tag` |
-| `PRFCommittedTable` | não muda | `committed_map[commit_rd] <= commit_tag` |
-| `PRFRegFile` | estados não `AR` voltam a `FREE` | `commit_tag` vira `AR`, `commit_old_tag` vira `FREE` |
+| `PRFFreeList` | `head <= tail`, `count <= ENTRIES-32` | cada `commit_old_tag` válido entra em `tail`, em ordem; `head` vai para o `tail` novo |
+| `PRFMapTable` | `map <= committed_map` | `map[commit_rd] <= commit_tag`, em ordem de slot |
+| `PRFCommittedTable` | não muda | `committed_map[commit_rd] <= commit_tag`, em ordem de slot |
+| `PRFRegFile` | estados não `AR` voltam a `FREE` | `commit_tag` vira `AR`, `commit_old_tag` vira `FREE`, em ordem de slot |
 
 O controle do pipeline deve cancelar os
 writebacks das instruções descartadas, pois uma tag pode ser reutilizada.
@@ -90,10 +92,34 @@ writebacks das instruções descartadas, pois uma tag pode ser reutilizada.
 
 - Como o valor retirado chega à verificação final (decisão 13): uma porta de
   leitura `commit_tag -> commit_data` no rename ou outro caminho. Não decidido.
-- A largura atual é de **uma instrução por ciclo**. A interface de largura `W`
-  (bundle tudo ou nada, dependências do bundle vindas do Decode) está
-  especificada na wiki, em "Bundle de largura `W`", e ainda não foi
-  implementada.
+- O número de portas de writeback (`WB_N`) depende das unidades funcionais
+  (página Execute da wiki). O padrão do módulo é `WB_N = 1`.
+- `RRF` e `ROBRename` ainda são de uma instrução por ciclo.
+
+### Bundle de largura `W` (`PRFRename`)
+
+As tabelas acima descrevem um slot. Em `PRFRename`, cada sinal por instrução é
+um packed array indexado pelo slot `k = 0..W-1` (slot 0 é o mais antigo); o
+handshake (`dispatch_valid`, `rob_ready`, `dispatch_ready`) é único para o
+bundle. A especificação completa está na wiki, em "Bundle de largura `W`".
+
+| Sinal | Sentido | Significado |
+|---|---|---|
+| `slot_valid[k]` | entrada | o slot `k` tem instrução |
+| `rs1_dep[k]`, `rs2_dep[k]`, `rd_dep[k]` | entrada | one-hot de `W` bits vindo do Decode: bit `i < k` indica o escritor mais próximo dentro do bundle |
+| `wb_*[p]` | entrada | `p = 0..WB_N-1`; o bypass compara cada fonte com todas as portas |
+| `commit_*[k]` | entrada | até `W` commits por ciclo, em ordem de programa |
+
+- **Tudo ou nada**: o slot `k` aloca se `slot_valid[k] && writes_rd[k] && rd[k] != 0`;
+  `dispatch_ready` exige tantas tags livres quanto slots que alocam.
+- **Alocação**: o slot `k` recebe a tag da Free List seguinte às dos slots
+  anteriores que alocam.
+- **Encadeamento**: se `rs1_dep[k]` tem o bit `i`, `src1_tag[k] = dst_tag[i]`
+  e `src_ready[k][0] = 0`, sem bypass. Idem para `rs2`. Se `rd_dep[k]` tem o
+  bit `i`, `old_tag[k] = dst_tag[i]`.
+- **Mesmo `rd` duas vezes** (dispatch ou commit no mesmo ciclo): vale o slot
+  de maior `k`. No flush, os commits do ciclo são aplicados em ordem por cima
+  da restauração.
 
 ## Implementação
 
@@ -104,7 +130,7 @@ não tem `ROB_ENTRIES`: o ROB é o próprio banco de renomeação (`ENTRIES`).
 
 | Submódulo | Função |
 |---|---|
-| `PRFFreeList` | fila circular das tags livres; no flush, `head` volta a `tail` |
+| `PRFFreeList` | fila circular das tags livres; até `W` pops e `W` pushes por ciclo; no flush, `head` volta a `tail` |
 | `PRFMapTable` | `x0..x31 -> tag` especulativo; fornece `src*_tag` e `old_tag` |
 | `PRFCommittedTable` | `x0..x31 -> tag` arquitetural; restaura a map table no flush |
 | `PRFRegFile` | `value[]` e `state[]` por tag (`FREE`, `RB_NOT_VALID`, `RB_VALID`, `AR`) |
@@ -112,5 +138,7 @@ não tem `ROB_ENTRIES`: o ROB é o próprio banco de renomeação (`ENTRIES`).
 Para verificar (hoje só `PRFRename` está em `rtl/rename/`):
 
 ```sh
-make test T=PRFRename
+make test T="PRFRename PRFRenameBundle"
 ```
+
+`PRFRename_tb` usa `W = 1`; `PRFRenameBundle_tb` usa `W = 3` e `WB_N = 2`.

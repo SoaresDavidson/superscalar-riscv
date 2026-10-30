@@ -1,13 +1,13 @@
-// PRFRename with a W-wide bundle (wiki: Register-Rename, "Bundle de largura W";
-// decisions 3 and 15). Ports indexed by slot are packed arrays, slot 0 oldest.
-// Two mocks live in this testbench:
-//   - Decode: computes rs1_dep/rs2_dep/rd_dep (one-hot closest earlier writer).
-//   - ROB: records dst_tag/old_tag per valid slot at dispatch, marks entries
-//     finished on writeback, retires up to W per cycle in program order and
-//     drives commit_* only for entries with a destination.
+// PRFRename com bundle de largura W (wiki: Register-Rename, "Bundle de largura W";
+// decisões 3 e 15). Portas por slot são packed arrays, slot 0 é o mais antigo.
+// Dois mocks vivem neste testbench:
+//   - Decode: calcula rs1_dep/rs2_dep/rd_dep (one-hot do escritor anterior mais próximo).
+//   - ROB: registra dst_tag/old_tag por slot válido no dispatch, marca entradas
+//     como terminadas no writeback, retira até W por ciclo em ordem de programa
+//     e envia commit_* só para entradas com destino.
 module PRFRenameBundle_tb;
     localparam int XLEN = 64;
-    localparam int ENTRIES = 37;  // 32 architectural + 5 rename tags
+    localparam int ENTRIES = 37;  // 32 arquiteturais + 5 tags de renomeação
     localparam int TAG_W = $clog2(ENTRIES);
     localparam int W = 3;
     localparam int WB_N = 2;
@@ -16,7 +16,7 @@ module PRFRenameBundle_tb;
     logic clk = 0;
     always #5 clk = ~clk;
 
-    // DUT ports
+    // Portas do DUT
     logic reset = 1, flush = 0;
     logic dispatch_valid = 0, rob_ready, dispatch_ready;
     logic [W-1:0] slot_valid = '0, writes_rd = '0;
@@ -34,13 +34,13 @@ module PRFRenameBundle_tb;
 
     PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES), .W(W), .WB_N(WB_N)) dut (.*);
 
-    // ---- Decode mock: closest earlier valid writer of each register ----
+    // ---- Mock do Decode: escritor válido anterior mais próximo de cada registrador ----
     always_comb begin
         for (int k = 0; k < W; k++) begin
             rs1_dep[k] = '0;
             rs2_dep[k] = '0;
             rd_dep[k]  = '0;
-            for (int i = 0; i < k; i++)  // ascending i: the closest writer wins
+            for (int i = 0; i < k; i++)  // i crescente: vale o escritor mais próximo
                 if (slot_valid[i] && writes_rd[i] && rd[i] != 0) begin
                     if (rs1[k] == rd[i]) rs1_dep[k] = W'(1) << i;
                     if (rs2[k] == rd[i]) rs2_dep[k] = W'(1) << i;
@@ -49,7 +49,7 @@ module PRFRenameBundle_tb;
         end
     end
 
-    // ---- ROB mock ----
+    // ---- Mock do ROB ----
     logic [4:0] m_rd[0:ROB_N-1];
     logic [TAG_W-1:0] m_tag[0:ROB_N-1], m_old[0:ROB_N-1];
     logic m_has[0:ROB_N-1], m_done[0:ROB_N-1];
@@ -65,7 +65,7 @@ module PRFRenameBundle_tb;
         if (ok !== 1'b1) $fatal(1, "PRFRenameBundle: %s", msg);
     endtask
 
-    // Empties the bundle; slots are filled with put() and offered with offer().
+    // Esvazia o bundle; slots são preenchidos com put() e oferecidos com offer().
     task automatic clear;
         slot_valid = '0;
         writes_rd = '0;
@@ -94,7 +94,7 @@ module PRFRenameBundle_tb;
         wb_data[p] = data;
     endtask
 
-    // Prepares retirement of the n oldest ROB entries, one commit slot each.
+    // Prepara a retirada das n entradas mais antigas do ROB, um slot de commit cada.
     task automatic retire(input int n);
         int idx;
         check(m_count >= n, "mock: not enough entries to retire");
@@ -110,8 +110,8 @@ module PRFRenameBundle_tb;
         #1;
     endtask
 
-    // One clock: samples the bundle transfer and writebacks into the mock,
-    // clocks the DUT, then pops retired entries and clears the pulses.
+    // Um clock: registra no mock a transferência do bundle e os writebacks,
+    // aplica o clock no DUT, depois remove as entradas retiradas e limpa os pulsos.
     task automatic step;
         logic xfer;
         xfer = dispatch_valid && dispatch_ready && rob_ready;
@@ -148,7 +148,7 @@ module PRFRenameBundle_tb;
         #1;
     endtask
 
-    // Reads x[r] through slot 0 without dispatching; returns ready and value.
+    // Lê x[r] pelo slot 0 sem fazer dispatch; retorna ready e valor.
     task automatic peek(input logic [4:0] r, output logic ready, output logic [XLEN-1:0] data,
                         output logic [TAG_W-1:0] tag);
         clear();
@@ -169,11 +169,11 @@ module PRFRenameBundle_tb;
         reset = 0;
         #1;
 
-        // ---- Incomplete bundle, x0 ----
-        // Slot 2 is invalid: its writer fields must allocate nothing.
+        // ---- Bundle incompleto, x0 ----
+        // Slot 2 é inválido: seus campos de escritor não podem alocar nada.
         clear();
-        put(0, 1, 0, 0, 0);  // write to x0
-        put(1, 0, 0, 0, 0);  // store-like, reads x0
+        put(0, 1, 0, 0, 0);  // escrita em x0
+        put(1, 0, 0, 0, 0);  // tipo store, lê x0
         writes_rd[2] = 1;
         rd[2] = 9;
         offer();
@@ -187,7 +187,7 @@ module PRFRenameBundle_tb;
         peek(9, rdy, v, t);
         check(t == TAG_W'(9), "invalid slot did not rename x9");
 
-        // ---- RAW, WAW and source = destination inside one bundle ----
+        // ---- RAW, WAW e fonte = destino dentro de um bundle ----
         clear();
         put(0, 1, 5, 5, 1);  // add x5, x5, x1
         put(1, 1, 6, 5, 2);  // sub x6, x5, x2   rs1 <- slot 0
@@ -213,8 +213,8 @@ module PRFRenameBundle_tb;
         peek(6, rdy, v, t);
         check(t == b1 && !rdy, "map[x6] holds slot 1");
 
-        // ---- All or nothing ----
-        // Two tags left: a bundle with three writers must wait whole.
+        // ---- Tudo ou nada ----
+        // Restam duas tags: um bundle com três escritores espera inteiro.
         clear();
         put(0, 1, 10, 0, 0);
         put(1, 1, 11, 0, 0);
@@ -222,11 +222,11 @@ module PRFRenameBundle_tb;
         offer();
         check(!dispatch_ready, "three writers with two free tags stall the bundle");
         step();
-        // The ROB refuses a bundle the rename could take: nothing is allocated.
+        // O ROB recusa um bundle que o rename aceitaria: nada é alocado.
         rob_block = 1;
         clear();
         put(0, 1, 10, 1, 0);  // x10 <- x1
-        put(1, 0, 0, 10, 0);  // store reads x10: chained to slot 0
+        put(1, 0, 0, 10, 0);  // store lê x10: encadeado ao slot 0
         put(2, 1, 11, 0, 0);
         offer();
         check(dispatch_ready, "two writers fit in two free tags");
@@ -245,12 +245,12 @@ module PRFRenameBundle_tb;
         dispatch_valid = 0;
         clear();
 
-        // ---- Writeback on two ports, bypass to sources read from the map ----
+        // ---- Writeback em duas portas, bypass para fontes lidas do mapa ----
         writeback(0, b1, 66);
         writeback(1, b0, 55);
         clear();
-        put(0, 0, 0, 6, 10);  // x6 = b1 (written now), x10 = 35 (pending)
-        put(1, 0, 0, 5, 1);  // x5 = b2 (pending), x1 architectural
+        put(0, 0, 0, 6, 10);  // x6 = b1 (escrito agora), x10 = 35 (pendente)
+        put(1, 0, 0, 5, 1);  // x5 = b2 (pendente), x1 arquitetural
         offer();
         check(src_ready[0][0] && src1_data[0] == 66, "port 0 writeback bypassed");
         check(!src_ready[0][1] && src2_tag[0] == TAG_W'(35), "x10 still pending");
@@ -267,7 +267,7 @@ module PRFRenameBundle_tb;
         writeback(0, TAG_W'(36), 110);
         step();
 
-        // ---- Three commits in one cycle; x5 committed twice ----
+        // ---- Três commits em um ciclo; x5 confirmado duas vezes ----
         // ROB: b0 (x5), b1 (x6), b2 (x5), x10, store, x11.
         retire(3);
         check(commit_valid == 3'b111 && commit_rd[0] == 5 && commit_rd[2] == 5,
@@ -275,7 +275,7 @@ module PRFRenameBundle_tb;
         step();
         peek(5, rdy, v, t);
         check(t == b2 && rdy && v == 77, "youngest commit of x5 wins");
-        // Old tags 5, 6 and b0 came back in commit order.
+        // As tags antigas 5, 6 e b0 voltaram em ordem de commit.
         clear();
         put(0, 1, 13, 0, 0);
         put(1, 1, 14, 0, 0);
@@ -288,7 +288,7 @@ module PRFRenameBundle_tb;
         peek(13, rdy, v, t);
         check(!rdy, "reallocated tag (was AR) starts not ready");
 
-        // ---- Flush with commits in the same cycle (slot 1 has no destination) ----
+        // ---- Flush com commits no mesmo ciclo (slot 1 não tem destino) ----
         // ROB: x10 (35), store, x11 (36), x13, x14, x15.
         retire(3);
         check(commit_valid == 3'b101, "store leaves a hole in the commit slots");
@@ -307,7 +307,7 @@ module PRFRenameBundle_tb;
         peek(15, rdy, v, t);
         check(rdy && v == 0 && t == TAG_W'(15), "discarded x15 back to its committed tag");
 
-        // After the flush exactly ENTRIES-32 tags are free: 5, 6, b0, 10, 11.
+        // Depois do flush exatamente ENTRIES-32 tags estão livres: 5, 6, b0, 10, 11.
         clear();
         put(0, 1, 20, 0, 0);
         put(1, 1, 21, 0, 0);
@@ -316,7 +316,7 @@ module PRFRenameBundle_tb;
         check(dispatch_ready, "three of five free tags");
         for (int k = 0; k < 3; k++) got[k] = dst_tag[k];
         step();
-        offer();  // same three writers again: only two tags left
+        offer();  // os mesmos três escritores de novo: só restam duas tags
         check(!dispatch_ready, "all or nothing after flush");
         clear();
         put(0, 1, 23, 0, 0);
