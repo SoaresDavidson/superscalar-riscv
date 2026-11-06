@@ -1,6 +1,6 @@
 # Superscalar RISC-V
 
-Dynamic (out-of-order) superscalar RV64IM core in SystemVerilog, built from
+Dynamic (out-of-order) superscalar RV64I core in SystemVerilog, built from
 Shen & Lipasti, *Modern Processor Design: Fundamentals of Superscalar
 Processors*. The book is the conceptual reference; the wiki is the spec.
 
@@ -20,22 +20,28 @@ When code and wiki disagree, report it instead of silently picking one.
 
 ## Fixed parameters
 
-- ISA: RV64IM without C and without division. Instruction table and RV64
-  encodings in `superscalar-riscv.wiki/ISA-RV64.md`. Instructions stay 32 bits;
-  the six formats are the same as RV32.
-- Data width: `XLEN = 64` is a module parameter, never a hard-coded 64 or 32.
-  Registers, PC, immediates (sign-extended to `XLEN`), ALU, AGU and branch
-  compare all use `XLEN`. RV64 adds the `W` instructions (`ADDW`, `SLLIW`, ...:
-  operate on the low 32 bits, sign-extend the result), `LD`/`SD`/`LWU`, and
-  6-bit `shamt`.
-- Decision 1 in the wiki still says RV32IM; it is out of date. Update it with
-  the project owner before relying on it (also decision 11: `MulPipelined32Bits`
-  cannot be reused as is for 64 bits).
+- ISA: RV64I, no multiplier, no divider, no C extension (decided at the
+  alignment meeting; wiki decisions 1 and 11). Instruction table and RV64
+  encodings in `superscalar-riscv.wiki/ISA-RV64.md`. Instructions are 32 bits,
+  the six formats are the same as RV32, with 32 registers (5-bit specifiers).
+- Data width vs instruction width are independent: the DATA is 64 bits, the
+  INSTRUCTION is 32 bits. `XLEN = 64` is a module parameter, never a hard-coded
+  64 or 32. Registers, PC, immediates (sign-extended to `XLEN`), ALU, AGU and
+  branch compare all use `XLEN`. RV64 adds the `W` instructions (`ADDW`,
+  `SLLIW`, ...: operate on the low 32 bits, sign-extend the result), `LD`/`SD`/
+  `LWU`, and 6-bit `shamt`. There is no MUL/DIV functional unit.
 - Width: 3 instructions per cycle for fetch, decode, dispatch and retire.
   Width is a module parameter, never a hard-coded 3.
-- Register rename: three variants exist in `rtl/rename/` (RRF, ROB-based,
-  unified PRF). **Which one the core uses is still undecided** — keep new
-  blocks independent of the variant (talk only in tags) until it is chosen.
+- Register rename: the core uses the **unified PRF** variant in `rtl/rename/`
+  (wiki decision 14). New blocks still talk to rename only in tags, never in
+  physical-register indices, so the rest of the pipeline stays variant-agnostic.
+
+- Decode <-> Execute interface: the micro-operation types the Decode
+  produces and the Execute consumes live in a single package,
+  `rtl/execute/execute_pkg.sv`. Do not create a second package for the
+  same information. Changing those types is a contract change between the
+  two stages: agree it with both owners and update the wiki Execute page
+  and the block READMEs in the same commit.
 
 ## Layout
 
@@ -75,7 +81,7 @@ When code and wiki disagree, report it instead of silently picking one.
   flush while results are in flight, and tag reuse after flush.
 - Changing a module interface means updating its README and wiki page in the
   same change.
-- Final verification (decision 13): the same binaries run on the scalar
-  RV32I pipeline and on this core, and the final architectural state must match.
-  The scalar pipeline is RV32I and this core is RV64, so that comparison needs
-  an RV64 reference model; this is not decided yet.
+- Final verification (decision 13, reopened): the RV32I scalar pipeline can no
+  longer be the reference, since this core is RV64I. A dedicated RV64I reference
+  model (an ISA simulator such as Spike, or equivalent) is needed and is not
+  decided yet.
