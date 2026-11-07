@@ -6,7 +6,8 @@ Unidades funcionais do estágio [Execute](https://github.com/SoaresDavidson/supe
 |---|---|---|
 | `execute_pkg.sv` | Tipos compartilhados: larguras, operações, requisição/resposta das FUs | pronto |
 | `alu.sv` | ALU inteira | pronto |
-| Branch Unit, AGU, `execute.sv` | — | a fazer |
+| `agu.sv` | Address Generation Unit | pronto |
+| Branch Unit, `execute.sv` | — | a fazer |
 
 ## `execute_pkg`
 
@@ -65,3 +66,23 @@ O segundo operando (`B`) é `imm` quando `use_imm = 1` e `src2` caso contrário.
 ### Teste
 
 `make test T=alu` — `tb/unit/alu_tb.sv`: casos dirigidos (limites aritméticos, deslocamentos acima de 32 bits, `slt` vs. `sltu`, imediato, mesmo registrador como fonte e destino, `x0`), back-pressure, flush com instrução mais antiga e mais nova em voo, flush no wraparound de `age` e 500 operações aleatórias contra um modelo de referência, com back-pressure aleatório.
+
+## `agu`
+
+Calcula `endereço = src1 + imm` e sinaliza exceção de desalinhamento. O acesso à memória em si pertence ao [[Memory]]. Mesma estrutura de registrador de saída, handshake e flush seletivo da ALU.
+
+### Comportamento
+
+- `result` carrega o endereço efetivo.
+- **Alinhamento** conforme o tamanho do acesso (vindo do `op`): byte sempre alinhado; half exige `addr[0]=0`; word exige `addr[1:0]=0`; double exige `addr[2:0]=0`.
+- **Exceção**: `exception=1` com `cause = CAUSE_LOAD_MISALIGNED` (loads) ou `CAUSE_STORE_MISALIGNED` (stores) quando desalinhado.
+- **`wr_en`**: repassado. Loads escrevem `rd` (valor vem depois, do Memory); stores chegam com `wr_en=0`.
+- **Pendente**: o dado do store (`src2`) até o Memory ainda não tem caminho definido.
+
+### Operações
+
+`AGU_LB/LBU/LH/LHU/LW/LWU/LD` (loads) e `AGU_SB/SH/SW/SD` (stores).
+
+### Teste
+
+`make test T=agu`. Casos: aritmética do endereço (offset positivo e negativo), alinhamento por tamanho, causa load vs store, desalinhamento vindo de `base+imm`, back-pressure, flush com mais antigo (sobrevive) e mais novo (morre), e 200 operações aleatórias contra modelo com back-pressure.
