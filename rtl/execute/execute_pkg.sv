@@ -1,20 +1,22 @@
 // Shared types for the Execute stage (functional units).
 // Spec: wiki page Execute.md. Interface changes must update that page.
 //
-// ISA: custom 64-bit ISA, no multiplication (Decisoes-de-Projeto, decision 1).
+// ISA: RV64I, no multiplier, no divider, no C (Decisoes-de-Projeto, dec. 1 and 11).
+// Instruction 32 bits, data XLEN = 64, 32 registers (5-bit specifiers).
 //
-// Open items that affect this file (see "Questoes em aberto" in Execute.md):
-//   - The full op list of the ISA is not defined yet: 32-bit variants such as
-//     RV64 `addw`, and the load/store sizes (`ld`/`sd`/`lwu`). New ops are
-//     added to exec_op_t below without renumbering the existing ones.
-//   - AGU store data and the Memory interface are not specified yet.
+// This package is the single source of the Decode<->Execute operation types
+// (AGENTS.md): Decode fills exec_op_t and the request below; the FUs consume
+// them. Do not create a second package for the same information.
+//
+// Open items (see Execute.md): load/store sizes beyond the ones listed; the
+// AGU store-data path to Memory; TAG/age widths once rename and Issue fix them.
 package execute_pkg;
 
   // ---------------------------------------------------------------------
   // Global widths
   // ---------------------------------------------------------------------
   parameter int unsigned XLEN  = 64;  // datapath width
-  parameter int unsigned REG_W = 7;   // register specifier width (128 regs)
+  parameter int unsigned REG_W = 5;   // register specifier width (32 regs, RV64I)
   parameter int unsigned AGE_W = 8;   // instruction age (program-order id)
 
   typedef logic [XLEN-1:0]  xlen_t;
@@ -25,39 +27,48 @@ package execute_pkg;
   // Operations. One enum for all FUs; the FU is derived from the op.
   // The Decode stage must translate the raw opcode into one of these.
   // ---------------------------------------------------------------------
-  typedef enum logic [5:0] {
-    // ALU
-    ALU_ADD    = 6'd0,
-    ALU_SUB    = 6'd1,
-    ALU_AND    = 6'd2,
-    ALU_OR     = 6'd3,
-    ALU_XOR    = 6'd4,
-    ALU_SLT    = 6'd5,
-    ALU_SLTU   = 6'd6,
-    ALU_SLL    = 6'd7,
-    ALU_SRL    = 6'd8,
-    ALU_SRA    = 6'd9,
-    ALU_LUI    = 6'd10,  // result = imm
-    ALU_AUIPC  = 6'd11,  // result = pc + imm
+  typedef enum logic [6:0] {
+    // ALU, 64-bit
+    ALU_ADD    = 7'd0,
+    ALU_SUB    = 7'd1,
+    ALU_AND    = 7'd2,
+    ALU_OR     = 7'd3,
+    ALU_XOR    = 7'd4,
+    ALU_SLT    = 7'd5,
+    ALU_SLTU   = 7'd6,
+    ALU_SLL    = 7'd7,
+    ALU_SRL    = 7'd8,
+    ALU_SRA    = 7'd9,
+    ALU_LUI    = 7'd10,  // result = imm
+    ALU_AUIPC  = 7'd11,  // result = pc + imm
+    // ALU, RV64 W variants: 32-bit op, result sign-extended to 64
+    ALU_ADDW   = 7'd12,
+    ALU_SUBW   = 7'd13,
+    ALU_SLLW   = 7'd14,
+    ALU_SRLW   = 7'd15,
+    ALU_SRAW   = 7'd16,
 
     // Branch unit
-    BR_BEQ     = 6'd16,
-    BR_BNE     = 6'd17,
-    BR_BLT     = 6'd18,
-    BR_BGE     = 6'd19,
-    BR_BLTU    = 6'd20,
-    BR_BGEU    = 6'd21,
-    BR_JALR    = 6'd22,
+    BR_BEQ     = 7'd32,
+    BR_BNE     = 7'd33,
+    BR_BLT     = 7'd34,
+    BR_BGE     = 7'd35,
+    BR_BLTU    = 7'd36,
+    BR_BGEU    = 7'd37,
+    BR_JALR    = 7'd38,
 
     // AGU: the op carries the access size, so misalignment is derivable
-    AGU_LB     = 6'd32,
-    AGU_LBU    = 6'd33,
-    AGU_LH     = 6'd34,
-    AGU_LHU    = 6'd35,
-    AGU_LW     = 6'd36,
-    AGU_SB     = 6'd37,
-    AGU_SH     = 6'd38,
-    AGU_SW     = 6'd39
+    AGU_LB     = 7'd64,
+    AGU_LBU    = 7'd65,
+    AGU_LH     = 7'd66,
+    AGU_LHU    = 7'd67,
+    AGU_LW     = 7'd68,
+    AGU_LWU    = 7'd69,
+    AGU_LD     = 7'd70,
+    AGU_SB     = 7'd71,
+    AGU_SH     = 7'd72,
+    AGU_SW     = 7'd73,
+    AGU_SD     = 7'd74
   } exec_op_t;
 
   // ---------------------------------------------------------------------
@@ -73,11 +84,13 @@ package execute_pkg;
   function automatic fu_kind_t fu_of(input exec_op_t op);
     case (op)
       ALU_ADD, ALU_SUB, ALU_AND, ALU_OR, ALU_XOR, ALU_SLT, ALU_SLTU,
-      ALU_SLL, ALU_SRL, ALU_SRA, ALU_LUI, ALU_AUIPC:
+      ALU_SLL, ALU_SRL, ALU_SRA, ALU_LUI, ALU_AUIPC,
+      ALU_ADDW, ALU_SUBW, ALU_SLLW, ALU_SRLW, ALU_SRAW:
         return FU_ALU;
       BR_BEQ, BR_BNE, BR_BLT, BR_BGE, BR_BLTU, BR_BGEU, BR_JALR:
         return FU_BRANCH;
-      AGU_LB, AGU_LBU, AGU_LH, AGU_LHU, AGU_LW, AGU_SB, AGU_SH, AGU_SW:
+      AGU_LB, AGU_LBU, AGU_LH, AGU_LHU, AGU_LW, AGU_LWU, AGU_LD,
+      AGU_SB, AGU_SH, AGU_SW, AGU_SD:
         return FU_AGU;
       default:
         return FU_NONE;

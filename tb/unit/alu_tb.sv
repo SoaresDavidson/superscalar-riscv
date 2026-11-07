@@ -134,7 +134,20 @@ module alu_tb;
   function automatic xlen_t model(input exec_op_t op, input xlen_t a,
                                   input xlen_t b, input xlen_t imm, input xlen_t pc);
     int unsigned sh;
-    sh = b % XLEN;
+    logic [31:0] a32, b32, w32;
+    logic [4:0]  sh32;
+    sh   = b % XLEN;
+    a32  = a[31:0];
+    b32  = b[31:0];
+    sh32 = b[4:0];
+    case (op)
+      ALU_ADDW: w32 = a32 + b32;
+      ALU_SUBW: w32 = a32 - b32;
+      ALU_SLLW: w32 = a32 << sh32;
+      ALU_SRLW: w32 = a32 >> sh32;
+      ALU_SRAW: w32 = $signed(a32) >>> sh32;
+      default:  w32 = '0;
+    endcase
     case (op)
       ALU_ADD:   return a + b;
       ALU_SUB:   return a - b;
@@ -148,6 +161,11 @@ module alu_tb;
       ALU_SRA:   return (a >> sh) | (a[XLEN-1] ? ~({XLEN{1'b1}} >> sh) : '0);
       ALU_LUI:   return imm;
       ALU_AUIPC: return pc + imm;
+      ALU_ADDW:  return {{32{w32[31]}}, w32};
+      ALU_SUBW:  return {{32{w32[31]}}, w32};
+      ALU_SLLW:  return {{32{w32[31]}}, w32};
+      ALU_SRLW:  return {{32{w32[31]}}, w32};
+      ALU_SRAW:  return {{32{w32[31]}}, w32};
       default:   return 'x;
     endcase
   endfunction
@@ -178,7 +196,7 @@ module alu_tb;
   endfunction
 
   function automatic exec_op_t random_alu_op();
-    case (($random(seed) & 32'h7FFF_FFFF) % 12)
+    case (($random(seed) & 32'h7FFF_FFFF) % 17)
       0:       return ALU_ADD;
       1:       return ALU_SUB;
       2:       return ALU_AND;
@@ -190,7 +208,12 @@ module alu_tb;
       8:       return ALU_SRL;
       9:       return ALU_SRA;
       10:      return ALU_LUI;
-      default: return ALU_AUIPC;
+      11:      return ALU_AUIPC;
+      12:      return ALU_ADDW;
+      13:      return ALU_SUBW;
+      14:      return ALU_SLLW;
+      15:      return ALU_SRLW;
+      default: return ALU_SRAW;
     endcase
   endfunction
 
@@ -249,8 +272,21 @@ module alu_tb;
     send(ALU_ADD, 64'd21, 64'd21, '0, '0, 1'b0, 7'd5, 1'b1, 64'd42);
     // x0 destination: wr_en arrives as 0 and must leave as 0
     send(ALU_ADD, 64'd1, 64'd2, '0, '0, 1'b0, 7'd0, 1'b0, 64'd3);
-    // highest register specifier (7 bits)
-    send(ALU_ADD, 64'd1, 64'd2, '0, '0, 1'b0, 7'd127, 1'b1, 64'd3);
+    // highest register specifier (5 bits, RV64I)
+    send(ALU_ADD, 64'd1, 64'd2, '0, '0, 1'b0, 7'd31, 1'b1, 64'd3);
+
+    // ----- RV64 W instructions: 32-bit op, result sign-extended -----
+    send(ALU_ADDW, 64'h0000_0000_7FFF_FFFF, 64'd1, '0, '0, 1'b0, 7'd5, 1'b1, 64'hFFFF_FFFF_8000_0000);
+    send(ALU_ADDW, 64'hFFFF_FFFF_0000_0005, 64'd3, '0, '0, 1'b0, 7'd5, 1'b1, 64'd8); // high bits ignored
+    // high halves must NOT carry into the low 32 (distinguishes ADDW from ADD)
+    send(ALU_ADDW, 64'h0000_0001_0000_0001, 64'h0000_0001_0000_0001, '0, '0, 1'b0, 7'd5, 1'b1, 64'd2);
+    send(ALU_SUBW, 64'h0000_0001_0000_0005, 64'h0000_0002_0000_0002, '0, '0, 1'b0, 7'd5, 1'b1, 64'd3);
+    send(ALU_SUBW, 64'd0, 64'd1, '0, '0, 1'b0, 7'd5, 1'b1, ONES);                      // -1 extended
+    send(ALU_SLLW, 64'd1, 64'd31, '0, '0, 1'b0, 7'd5, 1'b1, 64'hFFFF_FFFF_8000_0000);  // bit31 -> sign ext
+    send(ALU_SLLW, 64'd1, 64'd32, '0, '0, 1'b0, 7'd5, 1'b1, 64'd1);                    // W shamt 5 bits -> 0
+    send(ALU_SLLW, 64'd1, 64'd33, '0, '0, 1'b0, 7'd5, 1'b1, 64'd2);                    // shamt masked to 1
+    send(ALU_SRAW, 64'hFFFF_FFFF_8000_0000, 64'd4, '0, '0, 1'b0, 7'd5, 1'b1, 64'hFFFF_FFFF_F800_0000);
+    send(ALU_SRLW, 64'h0000_0000_8000_0000, 64'd0, '0, '0, 1'b0, 7'd5, 1'b1, 64'hFFFF_FFFF_8000_0000);
     idle();
     repeat (2) @(negedge clk);
 

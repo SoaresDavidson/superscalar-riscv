@@ -13,7 +13,7 @@ Unidades funcionais do estágio [Execute](https://github.com/SoaresDavidson/supe
 | Item | Valor / descrição |
 |---|---|
 | `XLEN` | 64 — largura dos dados |
-| `REG_W` | 7 — especificador de registrador (128 registradores) |
+| `REG_W` | 5 — especificador de registrador (32 registradores, RV64I) |
 | `AGE_W` | 8 — identificação de ordem da instrução (**proposta**) |
 | `exec_op_t` | Todas as operações do Execute; o Decode traduz o opcode para este enum |
 | `fu_of(op)` | Qual FU executa a operação (`FU_ALU`, `FU_BRANCH`, `FU_AGU`, `FU_NONE`) |
@@ -60,6 +60,7 @@ O segundo operando (`B`) é `imm` quando `use_imm = 1` e `src2` caso contrário.
 | `ALU_SLL` / `ALU_SRL` / `ALU_SRA` | deslocamento de `src1` pelos **6 bits baixos** de `B` |
 | `ALU_LUI` | `imm` |
 | `ALU_AUIPC` | `pc + imm` |
+| `ALU_ADDW`/`ALU_SUBW`/`ALU_SLLW`/`ALU_SRLW`/`ALU_SRAW` | variantes RV64 `W`: operam nos 32 bits baixos e estendem o sinal do resultado para 64; deslocamento de 5 bits |
 
 ### Teste
 
