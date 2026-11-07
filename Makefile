@@ -19,8 +19,10 @@ TESTS := $(UNIT_TESTS) $(INTEGRATION_TESTS)
 vpath %_tb.sv $(addprefix tb/,$(SUITES))
 
 # Parameter sets a testbench must pass; a test without an entry runs once.
-PARAMS_register_rename := MODE=0 MODE=1 MODE=2
-PARAMS_decode          := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
+# No PARAMS_register_rename: there is no `register_rename` test. The rename
+# tests are PRFRename and PRFRenameBundle, and they take no parameter sets --
+# PRFRename_tb fixes W = 1 and PRFRenameBundle_tb fixes W = 3, WB_N = 2.
+PARAMS_decode := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
 
 T ?= $(TESTS)
 
