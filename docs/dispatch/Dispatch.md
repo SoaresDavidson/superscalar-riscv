@@ -4,7 +4,8 @@
 
 Recebe do Decode um bundle de até `W` instruções e, para cada uma, reserva
 uma entrada no ROB, uma tag no Rename (se escreve registrador) e uma entrada
-na fila de emissão. Se faltar algum recurso, o bundle inteiro espera
+na estação de reserva (RS). Há duas RS: a INT (ALU e desvio) e a MEM
+(loads e stores). Se faltar algum recurso, o bundle inteiro espera
 (decisão 15).
 
 ## Vizinhos
@@ -14,15 +15,15 @@ na fila de emissão. Se faltar algum recurso, o bundle inteiro espera
 | Decode | `uop_t[W]`, dependências do bundle | `ready` |
 | Rename | `dst_tag`, `old_tag`, tags e prontos das fontes | `rs1`, `rs2`, `rd`, `writes_rd` |
 | ROB | entradas livres, índices | uma entrada por instrução |
-| Filas INT e MEM | entradas livres | instrução a emitir |
+| RS INT e RS MEM | entradas livres | instrução a emitir |
 
 ## Regras
 
 - Todo slot válido pede uma entrada no ROB.
 - Todo slot com `has_dest = 1` pede uma tag.
-- A fila depende de `uop_class`:
+- A RS depende de `uop_class`:
 
-| `uop_class` | Fila |
+| `uop_class` | RS |
 |---|---|
 | `UC_ALU` | INT (porta 0 ou 1) |
 | `UC_BRANCH`, `UC_JUMP` | INT (só porta 0) |
@@ -38,7 +39,7 @@ na fila de emissão. Se faltar algum recurso, o bundle inteiro espera
 
 *A escrever.*
 
-## Entrada na fila
+## Entrada na RS
 
 *A escrever.*
 
@@ -55,27 +56,27 @@ Cada item diz por que afeta o dispatch.
 
 1. **`UC_MUL` sem multiplicador.** O branch `execute` removeu o MUL, mas o
    `core_pkg` ainda tem `UC_MUL`. O dispatch manda essas instruções para
-   alguma fila ou as trata como ilegais?
-2. **Instruções `UC_SYSTEM`** (decisões 9 e 10). Entram na fila INT esperando
-   ser as mais antigas, ou ficam fora das filas e o ROB as executa no topo?
+   alguma RS ou as trata como ilegais?
+2. **Instruções `UC_SYSTEM`** (decisões 9 e 10). Entram na RS INT esperando
+   ser as mais antigas, ou ficam fora das RS e o ROB as executa no topo?
 
 **Interface com os vizinhos**
 
 3. **Formato das dependências do bundle.** O Decode entrega o índice do
    produtor e um bit `in_bundle`; o `PRFRename` espera one-hot e um `rd_dep`
    que o Decode não gera. O dispatch fica entre os dois e teria de converter.
-4. **Espaço nas filas no aceite do Rename.** O `PRFRename` só recebe
-   `rob_ready`. Se uma fila estiver cheia e ele alocar tags mesmo assim, as
+4. **Espaço nas RS no aceite do Rename.** O `PRFRename` só recebe
+   `rob_ready`. Se uma RS estiver cheia e ele alocar tags mesmo assim, as
    tags vazam.
 5. **Interface do ROB.** O módulo ainda não existe. O dispatch precisa saber
    quantas entradas estão livres e quais índices o bundle recebe.
 6. **Identificação da instrução (`age`).** O Execute usa `age_t` no flush
    seletivo. Se for o índice do ROB, quem atribui é o dispatch.
 
-**Conteúdo da entrada na fila**
+**Conteúdo da entrada na RS**
 
-7. **A fila guarda valores ou só tags?** O Rename hoje devolve `src1_data` e
-   `src2_data`. Define quais campos o dispatch escreve na fila.
+7. **A RS guarda valores ou só tags?** O Rename hoje devolve `src1_data` e
+   `src2_data`. Define quais campos o dispatch escreve na RS.
 8. **Informação de predição.** A Branch Unit precisa de `pred_taken` e
    `pred_target`, mas o `uop_t` não tem esses campos. O dispatch precisa
    recebê-los de algum lugar para repassar.
@@ -86,5 +87,5 @@ Cada item diz por que afeta o dispatch.
 **Flush**
 
 10. **Modelo de flush.** O Execute faz flush seletivo na execução; o
-    `PRFRename` só se recupera no commit. Define o que o dispatch e as filas
+    `PRFRename` só se recupera no commit. Define o que o dispatch e as RS
     descartam, e quando.
