@@ -1,22 +1,31 @@
-// Self-checking unit testbench for `decode`. Covers the 29 mandatory cases of
-// docsDecode/Decode.md section 11. Prints PASS at the end, $fatal on any failed
-// check. Runs at WIDTH = 1, 2, 3 and 4 (PARAMS_decode in the Makefile); cases
-// that need more slots than WIDTH provides are skipped and reported.
+// Self-checking unit testbench for `decode`. Prints PASS at the end and calls
+// $fatal on any failed check. Runs at WIDTH = 1, 2, 3 and 4 (PARAMS_decode in
+// the Makefile); cases that need more slots than WIDTH provides are skipped
+// and reported.
+//
+// ISA under test: RV64I, 52 instructions, NO multiplier (Decisoes-de-Projeto,
+// decisions 1 and 11). Every funct7 = 0000001 encoding -- MUL as much as
+// DIV/REM -- must come out illegal.
 //
 // Icarus 12.0 idiom (see AGENTS.md, "Icarus 12.0 limits"): a packed vector of
 // structs may be indexed with a variable ONLY whole-element. `out_uop[i].rs1`
 // with `int i` aborts the elaborator, so every access goes through a scalar
-// struct temporary: `a = out_uop[i];` and then `a.rs1`.
+// struct temporary: `a = out_uop[i];` and then `a.rs1`. The dependency masks
+// are checked either whole (a reduction over the 2-D vector) or at a LITERAL
+// slot index, so no variable index is ever applied to them.
 
 module decode_tb;
 
-  import core_pkg::*;
+  import execute_pkg::*;
 
   // parameter, not localparam: the Makefile overrides it with -Pdecode_tb.WIDTH
   parameter int WIDTH = 3;
 
-  localparam int XLEN      = core_pkg::XLEN;
-  localparam int PROD_BITS = ($clog2(WIDTH) > 0) ? $clog2(WIDTH) : 1;
+  // No `localparam int XLEN` here: the package is imported above, so XLEN is
+  // already in scope. Redeclaring it shadowed the package name and tripped
+  // VARHIDDEN in the linter -- the same trap that took the XLEN parameter out
+  // of decode.sv. (Note: a comment whose first word is the linter's own name
+  // is parsed as a pragma, hence the rewording.)
 
   // --- DUT wiring -----------------------------------------------------------
 
@@ -28,19 +37,18 @@ module decode_tb;
 
   logic                            out_valid, out_ready;
   uop_t [WIDTH-1:0]                out_uop;
-  logic [WIDTH-1:0]                out_dep_rs1_in_bundle;
-  logic [WIDTH-1:0]                out_dep_rs2_in_bundle;
-  logic [WIDTH-1:0][PROD_BITS-1:0] out_dep_rs1_producer;
-  logic [WIDTH-1:0][PROD_BITS-1:0] out_dep_rs2_producer;
+  logic [WIDTH-1:0][WIDTH-1:0]     out_dep_rs1;
+  logic [WIDTH-1:0][WIDTH-1:0]     out_dep_rs2;
+  logic [WIDTH-1:0][WIDTH-1:0]     out_dep_rd;
   logic                            redirect_valid;
   logic [XLEN-1:0]                 redirect_pc;
   logic [WIDTH-1:0]                out_slot_kill;
 
-  decode #(.WIDTH(WIDTH), .XLEN(XLEN)) dut (.*);
+  decode #(.WIDTH(WIDTH)) dut (.*);   // XLEN comes from the package
 
   // --- clock, watchdog, bookkeeping ----------------------------------------
 
-  localparam int TIMEOUT_NS = 20000;
+  localparam int TIMEOUT_NS = 40000;
 
   string cur;        // name of the running case, printed on failure
   int    checks;     // how many checks actually ran
@@ -50,8 +58,8 @@ module decode_tb;
     forever #5 clk = ~clk;
   end
 
-  // Without this, a DUT that never raises in_ready (the current stub) would
-  // hang instead of failing.
+  // Without this, a DUT that never raises in_ready would hang instead of
+  // failing.
   initial begin
     #TIMEOUT_NS;
     $fatal(1, "TIMEOUT after %0d ns during case: %s", TIMEOUT_NS, cur);
@@ -82,22 +90,28 @@ module decode_tb;
     enc_s = {imm[11:5], rs2, rs1, f3, imm[4:0], op};
   endfunction
 
-  // imm is the byte offset; bit 0 is not encoded (section 7)
+  // imm is the byte offset; bit 0 is not encoded (section 7). Dropping imm[0]
+  // is the ISA, not an oversight, so the unused-bit warning is silenced here
+  // rather than worked around.
+  /* verilator lint_off UNUSEDSIGNAL */
   function automatic logic [31:0] enc_b(logic [12:0] imm, logic [4:0] rs2,
                                         logic [4:0] rs1, logic [2:0] f3,
                                         logic [6:0] op);
     enc_b = {imm[12], imm[10:5], rs2, rs1, f3, imm[4:1], imm[11], op};
   endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
 
   function automatic logic [31:0] enc_u(logic [19:0] imm_hi, logic [4:0] rd,
                                         logic [6:0] op);
     enc_u = {imm_hi, rd, op};
   endfunction
 
+  /* verilator lint_off UNUSEDSIGNAL */   // imm[0] is implicit, as in enc_b
   function automatic logic [31:0] enc_j(logic [20:0] imm, logic [4:0] rd,
                                         logic [6:0] op);
     enc_j = {imm[20], imm[10:1], imm[11], imm[19:12], rd, op};
   endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
 
   // --- expected uop: all fields x (don't care) until set --------------------
 
@@ -121,15 +135,8 @@ module decode_tb;
     a = out_uop[slot];        // whole-element read: the only legal form here
     `CHK(valid)
     `CHK(pc)
-    `CHK(uop_class)
-    `CHK(alu_op)
-    `CHK(mul_op)
-    `CHK(br_op)
-    `CHK(mem_size)
-    `CHK(mem_unsigned)
-    `CHK(word_op)
-    `CHK(op_a_sel)
-    `CHK(op_b_sel)
+    `CHK(op)
+    `CHK(use_imm)
     `CHK(imm)
     `CHK(rs1)
     `CHK(rs1_valid)
@@ -137,6 +144,7 @@ module decode_tb;
     `CHK(rs2_valid)
     `CHK(rd)
     `CHK(has_dest)
+    `CHK(is_jal)
     `CHK(serializing)
     `CHK(illegal)
   endtask
@@ -154,11 +162,22 @@ module decode_tb;
       fail($sformatf("%s = 'b%0b, expected 'b%0b", what, got, want));
   endtask
 
-  task automatic check_producer(string what, int slot, logic [PROD_BITS-1:0] got,
-                                int want);
+  // One slot's dependency mask. `want` is the producer slot, or -1 for "no
+  // producer in this bundle". Built with a shift rather than a variable bit
+  // write, to keep every index into a packed vector constant.
+  task automatic chk_oh(string what, int slot, logic [WIDTH-1:0] got, int want);
+    logic [WIDTH-1:0] w;
     checks++;
-    if (got !== PROD_BITS'(want))
-      fail($sformatf("%s[%0d] = %0d, expected %0d", what, slot, got, want));
+    w = (want < 0) ? WIDTH'(0) : (WIDTH'(1) << want);
+    if (got !== w)
+      fail($sformatf("%s[%0d] = 'b%0b, expected 'b%0b (producer %0d)",
+                     what, slot, got, w, want));
+  endtask
+
+  // "Nothing depends on anything": one reduction over the whole 2-D mask.
+  task automatic chk_no_deps();
+    check_bit("any rs1 dependency", |out_dep_rs1, 1'b0);
+    check_bit("any rs2 dependency", |out_dep_rs2, 1'b0);
   endtask
 
   // --- driving --------------------------------------------------------------
@@ -230,13 +249,13 @@ module decode_tb;
   // flowing, with illegal = 1 and nothing allocated.
   task automatic illegal(string nm, logic [31:0] inst);
     uop_t e;
-    e             = exp_init();
-    e.valid       = 1'b1;
-    e.illegal     = 1'b1;
-    e.uop_class   = UC_ILLEGAL;
-    e.has_dest    = 1'b0;
-    e.rs1_valid   = 1'b0;
-    e.rs2_valid   = 1'b0;
+    e           = exp_init();
+    e.valid     = 1'b1;
+    e.illegal   = 1'b1;
+    e.op        = OP_NONE;
+    e.has_dest  = 1'b0;
+    e.rs1_valid = 1'b0;
+    e.rs2_valid = 1'b0;
     one(nm, inst, e);
   endtask
 
@@ -271,18 +290,6 @@ module decode_tb;
     $display("SKIP [%s] %s (WIDTH = %0d)", nm, why, WIDTH);
   endtask
 
-  task automatic chk_prod1(int slot, int want);
-    logic [PROD_BITS-1:0] p;
-    p = out_dep_rs1_producer[slot];
-    check_producer("rs1_producer", slot, p, want);
-  endtask
-
-  task automatic chk_prod2(int slot, int want);
-    logic [PROD_BITS-1:0] p;
-    p = out_dep_rs2_producer[slot];
-    check_producer("rs2_producer", slot, p, want);
-  endtask
-
   // --- per-class expectation shorthands ------------------------------------
   // Every one uses rs1 = x1, rs2 = x2, rd = x3: non-zero and distinct, so the
   // x0 lowering of section 9.4 never interferes here (it has its own cases).
@@ -302,39 +309,35 @@ module decode_tb;
   localparam logic [6:0] OP_SYSTEM = 7'b1110011;
 
   task automatic alu_rr(string nm, logic [6:0] f7, logic [2:0] f3,
-                        alu_op_e op, bit w);
+                        exec_op_t op, bit w);
     uop_t e;
     e             = exp_init();
     e.valid       = 1'b1;
     e.illegal     = 1'b0;
-    e.uop_class   = UC_ALU;
-    e.alu_op      = op;
-    e.word_op     = w;
-    e.op_a_sel    = OPA_RS1;
-    e.op_b_sel    = OPB_RS2;
+    e.op          = op;
+    e.use_imm     = 1'b0;
     e.rs1         = 5'd1;  e.rs1_valid = 1'b1;
     e.rs2         = 5'd2;  e.rs2_valid = 1'b1;
     e.rd          = 5'd3;  e.has_dest  = 1'b1;
+    e.is_jal      = 1'b0;
     e.serializing = 1'b0;
     covered++;
     one(nm, enc_r(f7, 5'd2, 5'd1, f3, 5'd3, w ? OP_OP32 : OP_OP), e);
   endtask
 
   task automatic alu_ri(string nm, logic [11:0] imm, logic [2:0] f3,
-                        alu_op_e op, bit w);
+                        exec_op_t op, bit w);
     uop_t e;
     e             = exp_init();
     e.valid       = 1'b1;
     e.illegal     = 1'b0;
-    e.uop_class   = UC_ALU;
-    e.alu_op      = op;
-    e.word_op     = w;
-    e.op_a_sel    = OPA_RS1;
-    e.op_b_sel    = OPB_IMM;
+    e.op          = op;
+    e.use_imm     = 1'b1;
     e.imm         = {{52{imm[11]}}, imm};
     e.rs1         = 5'd1;  e.rs1_valid = 1'b1;
     e.rs2_valid   = 1'b0;
     e.rd          = 5'd3;  e.has_dest  = 1'b1;
+    e.is_jal      = 1'b0;
     e.serializing = 1'b0;
     covered++;
     one(nm, enc_i(imm, 5'd1, f3, 5'd3, w ? OP_OPIMM32 : OP_OPIMM), e);
@@ -343,16 +346,13 @@ module decode_tb;
   // Immediate shifts: the immediate carries the shift amount, not imm_i
   // (section 7 says imm_i is not used, section 9.3 gives the shamt field).
   task automatic shift_i(string nm, logic [11:0] immfield, logic [2:0] f3,
-                         alu_op_e op, bit w, int shamt);
+                         exec_op_t op, bit w, int shamt);
     uop_t e;
     e             = exp_init();
     e.valid       = 1'b1;
     e.illegal     = 1'b0;
-    e.uop_class   = UC_ALU;
-    e.alu_op      = op;
-    e.word_op     = w;
-    e.op_a_sel    = OPA_RS1;
-    e.op_b_sel    = OPB_IMM;
+    e.op          = op;
+    e.use_imm     = 1'b1;
     e.imm         = 64'(shamt);
     e.rs1         = 5'd1;  e.rs1_valid = 1'b1;
     e.rs2_valid   = 1'b0;
@@ -362,16 +362,13 @@ module decode_tb;
     one(nm, enc_i(immfield, 5'd1, f3, 5'd3, w ? OP_OPIMM32 : OP_OPIMM), e);
   endtask
 
-  task automatic ld(string nm, logic [2:0] f3, mem_size_e sz, bit uns);
+  task automatic ld(string nm, logic [2:0] f3, exec_op_t op);
     uop_t e;
     e              = exp_init();
     e.valid        = 1'b1;
     e.illegal      = 1'b0;
-    e.uop_class    = UC_LOAD;
-    e.mem_size     = sz;
-    e.mem_unsigned = uns;
-    e.op_a_sel     = OPA_RS1;
-    e.op_b_sel     = OPB_IMM;
+    e.op           = op;
+    e.use_imm      = 1'b1;
     e.imm          = 64'd16;
     e.rs1          = 5'd1;  e.rs1_valid = 1'b1;
     e.rs2_valid    = 1'b0;
@@ -381,13 +378,12 @@ module decode_tb;
     one(nm, enc_i(12'd16, 5'd1, f3, 5'd3, OP_LOAD), e);
   endtask
 
-  task automatic st(string nm, logic [2:0] f3, mem_size_e sz);
+  task automatic st(string nm, logic [2:0] f3, exec_op_t op);
     uop_t e;
     e             = exp_init();
     e.valid       = 1'b1;
     e.illegal     = 1'b0;
-    e.uop_class   = UC_STORE;
-    e.mem_size    = sz;
+    e.op          = op;
     e.imm         = 64'd16;
     e.rs1         = 5'd1;  e.rs1_valid = 1'b1;
     e.rs2         = 5'd2;  e.rs2_valid = 1'b1;
@@ -397,13 +393,12 @@ module decode_tb;
     one(nm, enc_s(12'd16, 5'd2, 5'd1, f3, OP_STORE), e);
   endtask
 
-  task automatic br(string nm, logic [2:0] f3, br_op_e op);
+  task automatic br(string nm, logic [2:0] f3, exec_op_t op);
     uop_t e;
     e             = exp_init();
     e.valid       = 1'b1;
     e.illegal     = 1'b0;
-    e.uop_class   = UC_BRANCH;
-    e.br_op       = op;
+    e.op          = op;
     e.imm         = 64'd32;
     e.rs1         = 5'd1;  e.rs1_valid = 1'b1;
     e.rs2         = 5'd2;  e.rs2_valid = 1'b1;
@@ -413,53 +408,41 @@ module decode_tb;
     one(nm, enc_b(13'd32, 5'd2, 5'd1, f3, OP_BRANCH), e);
   endtask
 
-  task automatic mul_rr(string nm, logic [2:0] f3, mul_op_e op, bit w);
-    uop_t e;
-    e             = exp_init();
-    e.valid       = 1'b1;
-    e.illegal     = 1'b0;
-    e.uop_class   = UC_MUL;   // shares opcode with ALU, funct7 = 0000001
-    e.mul_op      = op;
-    e.word_op     = w;
-    e.op_a_sel    = OPA_RS1;
-    e.op_b_sel    = OPB_RS2;
-    e.rs1         = 5'd1;  e.rs1_valid = 1'b1;
-    e.rs2         = 5'd2;  e.rs2_valid = 1'b1;
-    e.rd          = 5'd3;  e.has_dest  = 1'b1;
-    e.serializing = 1'b0;
-    covered++;
-    one(nm, enc_r(7'b0000001, 5'd2, 5'd1, f3, 5'd3, w ? OP_OP32 : OP_OP), e);
-  endtask
-
   // ==========================================================================
   // Cases 1-12: encoding coverage
   // ==========================================================================
 
-  task automatic case01_all_57();
+  task automatic case01_all_52();
     uop_t e;
     covered = 0;
 
     // --- U and J formats: no sources, one destination ---------------------
+    // LUI: the result IS the immediate, so the op says so -- there is no
+    // separate "operand A selects zero" field any more.
     e = exp_init();
     e.valid     = 1'b1;  e.illegal   = 1'b0;
-    e.uop_class = UC_ALU;  e.alu_op  = ALU_ADD;
-    e.op_a_sel  = OPA_ZERO;  e.op_b_sel = OPB_IMM;
+    e.op        = ALU_LUI;
+    e.use_imm   = 1'b1;
     e.imm       = 64'h0000_0000_1234_5000;
     e.rs1_valid = 1'b0;  e.rs2_valid = 1'b0;
     e.rd        = 5'd3;  e.has_dest  = 1'b1;
-    e.word_op   = 1'b0;  e.serializing = 1'b0;
+    e.is_jal    = 1'b0;  e.serializing = 1'b0;
     covered++;
     one("LUI", enc_u(20'h12345, 5'd3, OP_LUI), e);
 
-    e.op_a_sel = OPA_PC;                 // AUIPC: PC + imm_u
-    e.imm      = 64'h0000_0000_0000_1000;
+    e.op   = ALU_AUIPC;                  // result = pc + imm
+    e.imm  = 64'h0000_0000_0000_1000;
     covered++;
     one("AUIPC", enc_u(20'h00001, 5'd3, OP_AUIPC), e);
 
+    // JAL: Fetch is redirected here (decision 7); the uop only has to write
+    // the link value pc + 4, which is what ALU_PC4 means. imm stays imm_j
+    // because it is what the redirect was computed from.
     e = exp_init();
     e.valid     = 1'b1;  e.illegal   = 1'b0;
-    e.uop_class = UC_JUMP;
+    e.op        = ALU_PC4;
     e.imm       = 64'd2048;
+    e.is_jal    = 1'b1;
     e.rs1_valid = 1'b0;  e.rs2_valid = 1'b0;
     e.rd        = 5'd1;  e.has_dest  = 1'b1;
     e.serializing = 1'b0;
@@ -468,8 +451,10 @@ module decode_tb;
 
     e = exp_init();
     e.valid     = 1'b1;  e.illegal   = 1'b0;
-    e.uop_class = UC_JUMP;
+    e.op        = BR_JALR;
+    e.use_imm   = 1'b1;
     e.imm       = 64'd8;
+    e.is_jal    = 1'b0;                  // JALR is resolved in Execute
     e.rs1       = 5'd1;  e.rs1_valid = 1'b1;
     e.rs2_valid = 1'b0;
     e.rd        = 5'd1;  e.has_dest  = 1'b1;
@@ -478,27 +463,27 @@ module decode_tb;
     one("JALR", enc_i(12'd8, 5'd1, 3'b000, 5'd1, OP_JALR), e);
 
     // --- branches (6) -----------------------------------------------------
-    br("BEQ",  3'b000, BR_EQ);
-    br("BNE",  3'b001, BR_NE);
-    br("BLT",  3'b100, BR_LT);
-    br("BGE",  3'b101, BR_GE);
-    br("BLTU", 3'b110, BR_LTU);
-    br("BGEU", 3'b111, BR_GEU);
+    br("BEQ",  3'b000, BR_BEQ);
+    br("BNE",  3'b001, BR_BNE);
+    br("BLT",  3'b100, BR_BLT);
+    br("BGE",  3'b101, BR_BGE);
+    br("BLTU", 3'b110, BR_BLTU);
+    br("BGEU", 3'b111, BR_BGEU);
 
-    // --- loads (7) --------------------------------------------------------
-    ld("LB",  3'b000, MEM_B, 1'b0);
-    ld("LH",  3'b001, MEM_H, 1'b0);
-    ld("LW",  3'b010, MEM_W, 1'b0);
-    ld("LD",  3'b011, MEM_D, 1'b0);
-    ld("LBU", 3'b100, MEM_B, 1'b1);
-    ld("LHU", 3'b101, MEM_H, 1'b1);
-    ld("LWU", 3'b110, MEM_W, 1'b1);
+    // --- loads (7): size and signedness live in the op -------------------
+    ld("LB",  3'b000, AGU_LB);
+    ld("LH",  3'b001, AGU_LH);
+    ld("LW",  3'b010, AGU_LW);
+    ld("LD",  3'b011, AGU_LD);
+    ld("LBU", 3'b100, AGU_LBU);
+    ld("LHU", 3'b101, AGU_LHU);
+    ld("LWU", 3'b110, AGU_LWU);
 
     // --- stores (4) -------------------------------------------------------
-    st("SB", 3'b000, MEM_B);
-    st("SH", 3'b001, MEM_H);
-    st("SW", 3'b010, MEM_W);
-    st("SD", 3'b011, MEM_D);
+    st("SB", 3'b000, AGU_SB);
+    st("SH", 3'b001, AGU_SH);
+    st("SW", 3'b010, AGU_SW);
+    st("SD", 3'b011, AGU_SD);
 
     // --- OP-IMM (6 + 3 shifts) -------------------------------------------
     alu_ri("ADDI",  12'd7,   3'b000, ALU_ADD,  1'b0);
@@ -523,49 +508,42 @@ module decode_tb;
     alu_rr("OR",   7'b0000000, 3'b110, ALU_OR,   1'b0);
     alu_rr("AND",  7'b0000000, 3'b111, ALU_AND,  1'b0);
 
-    // --- OP-IMM-32 (4): word_op = 1, shamt is 5 bits ---------------------
-    alu_ri("ADDIW",  12'd7, 3'b000, ALU_ADD, 1'b1);
-    shift_i("SLLIW", {7'b0000000, 5'd5}, 3'b001, ALU_SLL, 1'b1, 5);
-    shift_i("SRLIW", {7'b0000000, 5'd5}, 3'b101, ALU_SRL, 1'b1, 5);
-    shift_i("SRAIW", {7'b0100000, 5'd5}, 3'b101, ALU_SRA, 1'b1, 5);
+    // --- OP-IMM-32 (4): the W op says "32-bit", shamt is 5 bits ----------
+    alu_ri("ADDIW",  12'd7, 3'b000, ALU_ADDW, 1'b1);
+    shift_i("SLLIW", {7'b0000000, 5'd5}, 3'b001, ALU_SLLW, 1'b1, 5);
+    shift_i("SRLIW", {7'b0000000, 5'd5}, 3'b101, ALU_SRLW, 1'b1, 5);
+    shift_i("SRAIW", {7'b0100000, 5'd5}, 3'b101, ALU_SRAW, 1'b1, 5);
 
     // --- OP-32 (5) --------------------------------------------------------
-    alu_rr("ADDW", 7'b0000000, 3'b000, ALU_ADD, 1'b1);
-    alu_rr("SUBW", 7'b0100000, 3'b000, ALU_SUB, 1'b1);
-    alu_rr("SLLW", 7'b0000000, 3'b001, ALU_SLL, 1'b1);
-    alu_rr("SRLW", 7'b0000000, 3'b101, ALU_SRL, 1'b1);
-    alu_rr("SRAW", 7'b0100000, 3'b101, ALU_SRA, 1'b1);
+    alu_rr("ADDW", 7'b0000000, 3'b000, ALU_ADDW, 1'b1);
+    alu_rr("SUBW", 7'b0100000, 3'b000, ALU_SUBW, 1'b1);
+    alu_rr("SLLW", 7'b0000000, 3'b001, ALU_SLLW, 1'b1);
+    alu_rr("SRLW", 7'b0000000, 3'b101, ALU_SRLW, 1'b1);
+    alu_rr("SRAW", 7'b0100000, 3'b101, ALU_SRAW, 1'b1);
 
     // --- MISC-MEM and SYSTEM (3) -----------------------------------------
-    // FENCE: serializing is left unchecked -- decision 9 (nop or store-queue
-    // drain) is still open, and it is the consumer of that flag.
+    // No functional unit: fu_of(OP_NONE) is FU_NONE, and the `illegal` bit is
+    // what tells a system instruction apart from a bad encoding.
+    // FENCE's serializing is 1 as the conservative reading while decision 9
+    // (nop or store-queue drain) is open -- draining is never wrong.
     e = exp_init();
     e.valid     = 1'b1;  e.illegal = 1'b0;
-    e.uop_class = UC_SYSTEM;
+    e.op        = OP_NONE;
     e.rs1_valid = 1'b0;  e.rs2_valid = 1'b0;  e.has_dest = 1'b0;
     covered++;
     one("FENCE", 32'h0ff0000f, e);
 
-    e = exp_init();
-    e.valid       = 1'b1;  e.illegal = 1'b0;
-    e.uop_class   = UC_SYSTEM;
     e.serializing = 1'b1;                 // decision 10
-    e.rs1_valid   = 1'b0;  e.rs2_valid = 1'b0;  e.has_dest = 1'b0;
     covered++;
     one("ECALL", 32'h0000_0073, e);
     covered++;
     one("EBREAK", 32'h0010_0073, e);
 
-    // --- M extension (5) --------------------------------------------------
-    mul_rr("MUL",    3'b000, MUL_LO,   1'b0);
-    mul_rr("MULH",   3'b001, MUL_HI,   1'b0);
-    mul_rr("MULHSU", 3'b010, MUL_HISU, 1'b0);
-    mul_rr("MULHU",  3'b011, MUL_HIU,  1'b0);
-    mul_rr("MULW",   3'b000, MUL_LO,   1'b1);
-
     cur = "case 1 instruction count";
-    if (covered != 57)
-      fail($sformatf("exercised %0d instructions, the ISA has 57", covered));
+    checks++;
+    if (covered != 52)
+      fail($sformatf("exercised %0d instructions, RV64I without M has 52",
+                     covered));
   endtask
 
   task automatic case02_imm_i();
@@ -577,6 +555,9 @@ module decode_tb;
     one("imm_i = -2048", enc_i(12'h800, 5'd1, 3'b000, 5'd3, OP_OPIMM), e);
   endtask
 
+  // `a` is a whole uop_t but only a.imm[0] is read here: the slot has to be
+  // copied whole (the Icarus rule), and this case is only about that one bit.
+  /* verilator lint_off UNUSEDSIGNAL */
   task automatic case03_imm_b_j();
     uop_t e, a;
     // B: 13-bit signed, even. Range -4096 .. +4094.
@@ -603,6 +584,7 @@ module decode_tb;
     a = out_uop[0];
     check_bit("imm_j[0]", a.imm[0], 1'b0);
   endtask
+  /* verilator lint_on UNUSEDSIGNAL */
 
   task automatic case04_imm_u_sign();
     uop_t e;
@@ -621,9 +603,9 @@ module decode_tb;
   task automatic case06_shamt_w();
     // shamt = 31 is the largest legal W shift; inst[25] = 1 means shamt >= 32,
     // which has no meaning on a 32-bit operand (section 9.3) -> illegal.
-    shift_i("SLLIW shamt=31", {7'b0000000, 5'd31}, 3'b001, ALU_SLL, 1'b1, 31);
-    shift_i("SRLIW shamt=31", {7'b0000000, 5'd31}, 3'b101, ALU_SRL, 1'b1, 31);
-    shift_i("SRAIW shamt=31", {7'b0100000, 5'd31}, 3'b101, ALU_SRA, 1'b1, 31);
+    shift_i("SLLIW shamt=31", {7'b0000000, 5'd31}, 3'b001, ALU_SLLW, 1'b1, 31);
+    shift_i("SRLIW shamt=31", {7'b0000000, 5'd31}, 3'b101, ALU_SRLW, 1'b1, 31);
+    shift_i("SRAIW shamt=31", {7'b0100000, 5'd31}, 3'b101, ALU_SRAW, 1'b1, 31);
     illegal("SLLIW inst[25]=1",
             enc_i({6'b000000, 1'b1, 5'd31}, 5'd1, 3'b001, 5'd3, OP_OPIMM32));
     illegal("SRLIW inst[25]=1",
@@ -641,22 +623,30 @@ module decode_tb;
   endtask
 
   task automatic case08_add_vs_mul();
-    // Same opcode and funct3; funct7 = 0000001 is the only difference.
+    // Same opcode and funct3; funct7 = 0000001 is the only difference, and it
+    // is now the difference between a legal ADD and an illegal MUL
+    // (decision 11: there is no multiplier).
     alu_rr("ADD vs MUL: ADD", 7'b0000000, 3'b000, ALU_ADD, 1'b0);
-    mul_rr("ADD vs MUL: MUL", 3'b000, MUL_LO, 1'b0);
+    illegal("ADD vs MUL: MUL", enc_r(7'b0000001, 5'd2, 5'd1, 3'b000, 5'd3, OP_OP));
   endtask
 
-  task automatic case09_div_rem_illegal();
-    // funct7 = 0000001 with funct3 >= 100 is DIV/DIVU/REM/REMU in OP, and the
-    // W variants in OP-32: out of scope by decision 1.
-    illegal("DIV",   enc_r(7'b0000001, 5'd2, 5'd1, 3'b100, 5'd3, OP_OP));
-    illegal("DIVU",  enc_r(7'b0000001, 5'd2, 5'd1, 3'b101, 5'd3, OP_OP));
-    illegal("REM",   enc_r(7'b0000001, 5'd2, 5'd1, 3'b110, 5'd3, OP_OP));
-    illegal("REMU",  enc_r(7'b0000001, 5'd2, 5'd1, 3'b111, 5'd3, OP_OP));
-    illegal("DIVW",  enc_r(7'b0000001, 5'd2, 5'd1, 3'b100, 5'd3, OP_OP32));
-    illegal("DIVUW", enc_r(7'b0000001, 5'd2, 5'd1, 3'b101, 5'd3, OP_OP32));
-    illegal("REMW",  enc_r(7'b0000001, 5'd2, 5'd1, 3'b110, 5'd3, OP_OP32));
-    illegal("REMUW", enc_r(7'b0000001, 5'd2, 5'd1, 3'b111, 5'd3, OP_OP32));
+  task automatic case09_m_ext_illegal();
+    // The whole M extension is out of scope (decisions 1 and 11): funct7 =
+    // 0000001 is illegal for EVERY funct3, in OP and in OP-32 alike. That is
+    // MUL/MULH/MULHSU/MULHU and DIV/DIVU/REM/REMU, plus the W forms.
+    illegal("MUL",    enc_r(7'b0000001, 5'd2, 5'd1, 3'b000, 5'd3, OP_OP));
+    illegal("MULH",   enc_r(7'b0000001, 5'd2, 5'd1, 3'b001, 5'd3, OP_OP));
+    illegal("MULHSU", enc_r(7'b0000001, 5'd2, 5'd1, 3'b010, 5'd3, OP_OP));
+    illegal("MULHU",  enc_r(7'b0000001, 5'd2, 5'd1, 3'b011, 5'd3, OP_OP));
+    illegal("DIV",    enc_r(7'b0000001, 5'd2, 5'd1, 3'b100, 5'd3, OP_OP));
+    illegal("DIVU",   enc_r(7'b0000001, 5'd2, 5'd1, 3'b101, 5'd3, OP_OP));
+    illegal("REM",    enc_r(7'b0000001, 5'd2, 5'd1, 3'b110, 5'd3, OP_OP));
+    illegal("REMU",   enc_r(7'b0000001, 5'd2, 5'd1, 3'b111, 5'd3, OP_OP));
+    illegal("MULW",   enc_r(7'b0000001, 5'd2, 5'd1, 3'b000, 5'd3, OP_OP32));
+    illegal("DIVW",   enc_r(7'b0000001, 5'd2, 5'd1, 3'b100, 5'd3, OP_OP32));
+    illegal("DIVUW",  enc_r(7'b0000001, 5'd2, 5'd1, 3'b101, 5'd3, OP_OP32));
+    illegal("REMW",   enc_r(7'b0000001, 5'd2, 5'd1, 3'b110, 5'd3, OP_OP32));
+    illegal("REMUW",  enc_r(7'b0000001, 5'd2, 5'd1, 3'b111, 5'd3, OP_OP32));
   endtask
 
   task automatic case10_compressed_illegal();
@@ -674,30 +664,42 @@ module decode_tb;
     illegal("STORE funct3=101",  enc_s(12'd4, 5'd2, 5'd1, 3'b101, OP_STORE));
     illegal("STORE funct3=110",  enc_s(12'd4, 5'd2, 5'd1, 3'b110, OP_STORE));
     illegal("STORE funct3=111",  enc_s(12'd4, 5'd2, 5'd1, 3'b111, OP_STORE));
+    illegal("JALR funct3=001",   enc_i(12'd8, 5'd1, 3'b001, 5'd1, OP_JALR));
+    illegal("OP funct7=0001000", enc_r(7'b0001000, 5'd2, 5'd1, 3'b000, 5'd3, OP_OP));
+    illegal("OP funct7=0100000 funct3=001",
+            enc_r(7'b0100000, 5'd2, 5'd1, 3'b001, 5'd3, OP_OP));
+    illegal("OP-32 funct3=010",  enc_r(7'b0000000, 5'd2, 5'd1, 3'b010, 5'd3, OP_OP32));
+    illegal("OP-IMM-32 funct3=010",
+            enc_i(12'd4, 5'd1, 3'b010, 5'd3, OP_OPIMM32));
   endtask
 
   task automatic case12_serializing();
     uop_t e;
     e = exp_init();
     e.valid = 1'b1;  e.illegal = 1'b0;
-    e.uop_class = UC_SYSTEM;  e.serializing = 1'b1;
+    e.op = OP_NONE;  e.serializing = 1'b1;
     one("ECALL serializing",  32'h0000_0073, e);
     one("EBREAK serializing", 32'h0010_0073, e);
-    // CSR accesses, decision 10. Only class and serializing are asserted: the
-    // spec does not define rs1_valid for the uimm forms (CSRRWI and friends).
+    // CSR accesses, decision 10. Only op and serializing are asserted: which
+    // operands the CSR forms really use is still open, so the spec does not
+    // define rs1_valid/has_dest for them yet.
     one("CSRRW",  enc_i(12'h305, 5'd1, 3'b001, 5'd5, OP_SYSTEM), e);
     one("CSRRS",  enc_i(12'h305, 5'd1, 3'b010, 5'd5, OP_SYSTEM), e);
     one("CSRRC",  enc_i(12'h305, 5'd1, 3'b011, 5'd5, OP_SYSTEM), e);
     one("CSRRWI", enc_i(12'h305, 5'd1, 3'b101, 5'd5, OP_SYSTEM), e);
     one("CSRRSI", enc_i(12'h305, 5'd1, 3'b110, 5'd5, OP_SYSTEM), e);
     one("CSRRCI", enc_i(12'h305, 5'd1, 3'b111, 5'd5, OP_SYSTEM), e);
+    // FENCE.I drains too (decision 9 open; draining is the safe reading)
+    one("FENCE.I", enc_i(12'd0, 5'd0, 3'b001, 5'd0, OP_MISCMEM), e);
   endtask
 
   // ==========================================================================
   // Cases 13-20: intra-bundle dependencies (decision 3, section 8)
   // ==========================================================================
-  // Every case needs at least 3 slots to say anything about "closest writer",
-  // so with WIDTH < 3 they report SKIP instead of silently passing.
+  // The masks are one-hot over the bundle: bit j of slot i's mask marks the
+  // closest earlier writer. Most cases need at least 3 slots to say anything
+  // about "closest", so with WIDTH < 3 they report SKIP rather than silently
+  // passing.
 
   task automatic case13_no_deps();
     if (WIDTH < 3) begin
@@ -709,8 +711,9 @@ module decode_tb;
       b_inst[1] = enc_i(12'd2, 5'd2, 3'b000, 5'd4, OP_OPIMM);  // addi x4, x2, 2
       b_inst[2] = enc_i(12'd3, 5'd5, 3'b000, 5'd6, OP_OPIMM);  // addi x6, x5, 3
       send_bundle(WIDTH'(3'b111));
-      check_vec("rs1_in_bundle", out_dep_rs1_in_bundle, '0);
-      check_vec("rs2_in_bundle", out_dep_rs2_in_bundle, '0);
+      chk_no_deps();
+      // distinct destinations, so no WAW either
+      check_bit("any rd dependency", |out_dep_rd, 1'b0);
     end
   endtask
 
@@ -723,9 +726,10 @@ module decode_tb;
       b_inst[0] = enc_i(12'd1, 5'd1, 3'b000, 5'd5, OP_OPIMM);  // addi x5, x1, 1
       b_inst[1] = enc_i(12'd2, 5'd5, 3'b000, 5'd6, OP_OPIMM);  // addi x6, x5, 2
       send_bundle(~WIDTH'(0));
-      check_vec("rs1_in_bundle", out_dep_rs1_in_bundle, WIDTH'(2));
-      check_vec("rs2_in_bundle", out_dep_rs2_in_bundle, '0);
-      chk_prod1(1, 0);
+      chk_oh("rs1_dep", 0, out_dep_rs1[0], -1);
+      chk_oh("rs1_dep", 1, out_dep_rs1[1],  0);
+      check_bit("any rs2 dependency", |out_dep_rs2, 1'b0);
+      check_bit("any rd dependency",  |out_dep_rd,  1'b0);
     end
   endtask
 
@@ -739,8 +743,11 @@ module decode_tb;
       b_inst[1] = enc_i(12'd2, 5'd2, 3'b000, 5'd5, OP_OPIMM);  // addi x5, x2, 2
       b_inst[2] = enc_i(12'd3, 5'd5, 3'b000, 5'd7, OP_OPIMM);  // addi x7, x5, 3
       send_bundle(WIDTH'(3'b111));
-      check_vec("rs1_in_bundle", out_dep_rs1_in_bundle, WIDTH'(3'b100));
-      chk_prod1(2, 1);                 // slot 1, the last writer -- not slot 0
+      chk_oh("rs1_dep", 2, out_dep_rs1[2], 1);   // slot 1, NOT slot 0
+      // and the WAW between slots 0 and 1 is reported on rd
+      chk_oh("rd_dep",  0, out_dep_rd[0], -1);
+      chk_oh("rd_dep",  1, out_dep_rd[1],  0);
+      chk_oh("rd_dep",  2, out_dep_rd[2], -1);   // slot 2 writes x7, nobody else does
     end
   endtask
 
@@ -754,10 +761,12 @@ module decode_tb;
       b_inst[1] = enc_r(7'b0000000, 5'd1, 5'd5, 3'b000, 5'd5, OP_OP);   // add x5, x5, x1
       send_bundle(~WIDTH'(0));
       // the source dependency is detected...
-      check_vec("rs1_in_bundle", out_dep_rs1_in_bundle, WIDTH'(2));
-      chk_prod1(1, 0);
-      // ...and writing the same register does not make slot 1 depend on itself
-      check_vec("rs2_in_bundle", out_dep_rs2_in_bundle, '0);
+      chk_oh("rs1_dep", 1, out_dep_rs1[1], 0);
+      // ...the second source (x1) has no producer here...
+      check_bit("any rs2 dependency", |out_dep_rs2, 1'b0);
+      // ...and writing the same register is a WAW on rd, not a dependency of
+      // slot 1 on itself: the mask points at slot 0.
+      chk_oh("rd_dep", 1, out_dep_rd[1], 0);
     end
   endtask
 
@@ -772,9 +781,11 @@ module decode_tb;
       b_inst[1] = enc_i(12'd2, 5'd2, 3'b000, 5'd0, OP_OPIMM);  // addi x0, x2, 2
       b_inst[2] = enc_i(12'd3, 5'd0, 3'b000, 5'd7, OP_OPIMM);  // addi x7, x0, 3
       send_bundle(WIDTH'(3'b111));
-      // No intra-bundle dependency: a writer of x0 produces no value (section 9.4)
-      check_vec("rs1_in_bundle", out_dep_rs1_in_bundle, '0);
-      check_vec("rs2_in_bundle", out_dep_rs2_in_bundle, '0);
+      // No intra-bundle dependency: a writer of x0 produces no value and
+      // allocates no tag (section 9.4), so it cannot be anyone's producer --
+      // not even for the WAW mask between the two x0 writers.
+      chk_no_deps();
+      check_bit("any rd dependency", |out_dep_rd, 1'b0);
       // has_dest lowered on both writers
       e = exp_init();  e.has_dest = 1'b0;  e.rd = 5'd0;
       check_uop(0, e);
@@ -795,11 +806,11 @@ module decode_tb;
       b_inst[1] = enc_r(7'b0000000, 5'd5, 5'd7, 3'b000, 5'd6, OP_OP);  // add x6, x7, x5
       b_inst[2] = enc_r(7'b0000000, 5'd6, 5'd5, 3'b000, 5'd8, OP_OP);  // add x8, x5, x6
       send_bundle(WIDTH'(3'b111));
-      check_vec("rs1_in_bundle", out_dep_rs1_in_bundle, WIDTH'(3'b100));
-      check_vec("rs2_in_bundle", out_dep_rs2_in_bundle, WIDTH'(3'b110));
-      chk_prod1(2, 0);                 // x5 from slot 0
-      chk_prod2(1, 0);                 // x5 from slot 0
-      chk_prod2(2, 1);                 // x6 from slot 1
+      chk_oh("rs1_dep", 1, out_dep_rs1[1], -1);  // x7: no producer
+      chk_oh("rs1_dep", 2, out_dep_rs1[2],  0);  // x5 from slot 0
+      chk_oh("rs2_dep", 1, out_dep_rs2[1],  0);  // x5 from slot 0
+      chk_oh("rs2_dep", 2, out_dep_rs2[2],  1);  // x6 from slot 1
+      check_bit("any rd dependency", |out_dep_rd, 1'b0);  // x5, x6, x8 distinct
     end
   endtask
 
@@ -816,8 +827,8 @@ module decode_tb;
       b_inst[1] = enc_b(13'd18, 5'd2, 5'd1, 3'b000, OP_BRANCH);         // beq x1, x2, 18
       b_inst[2] = enc_r(7'b0000000, 5'd18, 5'd5, 3'b000, 5'd9, OP_OP);  // add x9, x5, x18
       send_bundle(WIDTH'(3'b111));
-      check_vec("rs1_in_bundle", out_dep_rs1_in_bundle, '0);
-      check_vec("rs2_in_bundle", out_dep_rs2_in_bundle, '0);
+      chk_no_deps();
+      check_bit("any rd dependency", |out_dep_rd, 1'b0);
     end
   endtask
 
@@ -831,9 +842,10 @@ module decode_tb;
       b_inst[1] = enc_i(12'd2, 5'd2, 3'b000, 5'd5, OP_OPIMM);  // addi x5, x2, 2  (INVALID slot)
       b_inst[2] = enc_i(12'd3, 5'd5, 3'b000, 5'd7, OP_OPIMM);  // addi x7, x5, 3
       send_bundle(WIDTH'(3'b101));
-      check_vec("rs1_in_bundle", out_dep_rs1_in_bundle, WIDTH'(3'b100));
       // the invalid slot does not produce, so the producer is slot 0
-      chk_prod1(2, 0);
+      chk_oh("rs1_dep", 2, out_dep_rs1[2], 0);
+      // nor does it take part in the WAW mask
+      chk_oh("rd_dep",  1, out_dep_rd[1], -1);
     end
   endtask
 
@@ -849,15 +861,15 @@ module decode_tb;
       b_inst[i] = enc_i(12'(i + 1), 5'd1, 3'b000, 5'(i + 10), OP_OPIMM);
     send_bundle(~WIDTH'(0));
     for (int i = 0; i < WIDTH; i++) begin
-      e           = exp_init();
-      e.valid     = 1'b1;
-      e.illegal   = 1'b0;
-      e.uop_class = UC_ALU;
-      e.alu_op    = ALU_ADD;
-      e.imm       = 64'(i + 1);
-      e.rd        = 5'(i + 10);
-      e.has_dest  = 1'b1;
-      e.pc        = 64'h1000 + 64'(4 * i);
+      e          = exp_init();
+      e.valid    = 1'b1;
+      e.illegal  = 1'b0;
+      e.op       = ALU_ADD;
+      e.use_imm  = 1'b1;
+      e.imm      = 64'(i) + 64'd1;
+      e.rd       = 5'(i + 10);
+      e.has_dest = 1'b1;
+      e.pc       = 64'h1000 + 64'(4 * i);
       check_uop(i, e);
     end
   endtask
@@ -955,6 +967,7 @@ module decode_tb;
   endtask
 
   task automatic case26_jal_slot0();
+    uop_t e;
     cur = "case 26: JAL in slot 0 kills the slots to its right";
     if (WIDTH < 2) begin
       skip("case 26", "needs 2 slots");
@@ -970,6 +983,11 @@ module decode_tb;
         fail($sformatf("redirect_pc = 'h%0h, expected 'h%0h (pc0 + imm_j)",
                        redirect_pc, 64'h1000 + 64'd16));
       check_vec("out_slot_kill", out_slot_kill, ~WIDTH'(1));
+      // a killed slot reaches Rename invalid, so it allocates nothing
+      e = exp_init();  e.valid = 1'b0;
+      check_uop(1, e);
+      // and it is nobody's producer: slot 1 writes x3, slot 2 reads x1
+      check_bit("killed slot produces nothing", |out_dep_rd, 1'b0);
       tick();
       check_bit("redirect_valid is a single pulse", redirect_valid, 1'b0);
     end
@@ -1007,6 +1025,65 @@ module decode_tb;
   endtask
 
   // ==========================================================================
+  // Cases 29-31: the WAW mask the rename needs for old_tag
+  // ==========================================================================
+  // Without rd_dep, two writers of the same register in one bundle would both
+  // report the pre-bundle tag as old_tag. The ROB would then hand the same
+  // commit_old_tag back twice: that tag enters the free list twice while the
+  // intermediate one leaks. These cases pin the mask down.
+
+  task automatic case29_waw_chain();
+    if (WIDTH < 3) begin
+      skip("case 29", "needs 3 slots");
+    end else begin
+      cur = "case 29: three writers of x5, each old_tag chains to the previous";
+      bundle_of_nops();
+      b_inst[0] = enc_i(12'd1, 5'd1, 3'b000, 5'd5, OP_OPIMM);  // addi x5, x1, 1
+      b_inst[1] = enc_i(12'd2, 5'd2, 3'b000, 5'd5, OP_OPIMM);  // addi x5, x2, 2
+      b_inst[2] = enc_i(12'd3, 5'd3, 3'b000, 5'd5, OP_OPIMM);  // addi x5, x3, 3
+      send_bundle(WIDTH'(3'b111));
+      chk_oh("rd_dep", 0, out_dep_rd[0], -1);  // first writer: tag from the map
+      chk_oh("rd_dep", 1, out_dep_rd[1],  0);
+      chk_oh("rd_dep", 2, out_dep_rd[2],  1);  // the CLOSEST, not slot 0
+      // no source reads x5, so the source masks stay empty
+      chk_no_deps();
+    end
+  endtask
+
+  task automatic case30_waw_non_allocating();
+    if (WIDTH < 3) begin
+      skip("case 30", "needs 3 slots");
+    end else begin
+      cur = "case 30: a slot that allocates nothing has an empty rd mask";
+      bundle_of_nops();
+      b_inst[0] = enc_i(12'd1, 5'd1, 3'b000, 5'd5, OP_OPIMM);   // addi x5, x1, 1
+      b_inst[1] = enc_s(12'd5, 5'd5, 5'd1, 3'b010, OP_STORE);   // sw x5, 5(x1): no rd
+      b_inst[2] = enc_i(12'd3, 5'd1, 3'b000, 5'd5, OP_OPIMM);   // addi x5, x1, 3
+      send_bundle(WIDTH'(3'b111));
+      // the store does not allocate, so it asks for no old_tag...
+      chk_oh("rd_dep", 1, out_dep_rd[1], -1);
+      // ...and it does not break the chain either: slot 2 still points at
+      // slot 0, the closest slot that actually allocated x5.
+      chk_oh("rd_dep", 2, out_dep_rd[2], 0);
+      // the store reads x5, which slot 0 writes
+      chk_oh("rs2_dep", 1, out_dep_rs2[1], 0);
+    end
+  endtask
+
+  task automatic case31_waw_different_regs();
+    if (WIDTH < 2) begin
+      skip("case 31", "needs 2 slots");
+    end else begin
+      cur = "case 31: writers of different registers are not a WAW";
+      bundle_of_nops();
+      b_inst[0] = enc_i(12'd1, 5'd1, 3'b000, 5'd5, OP_OPIMM);  // addi x5, x1, 1
+      b_inst[1] = enc_i(12'd2, 5'd1, 3'b000, 5'd6, OP_OPIMM);  // addi x6, x1, 2
+      send_bundle(~WIDTH'(0));
+      check_bit("any rd dependency", |out_dep_rd, 1'b0);
+    end
+  endtask
+
+  // ==========================================================================
   // Sequence
   // ==========================================================================
 
@@ -1017,7 +1094,7 @@ module decode_tb;
     bundle_of_nops();
     do_reset();
 
-    case01_all_57();
+    case01_all_52();
     case02_imm_i();
     case03_imm_b_j();
     case04_imm_u_sign();
@@ -1025,7 +1102,7 @@ module decode_tb;
     case06_shamt_w();
     case07_srl_vs_sra();
     case08_add_vs_mul();
-    case09_div_rem_illegal();
+    case09_m_ext_illegal();
     case10_compressed_illegal();
     case11_reserved_funct3();
     case12_serializing();
@@ -1056,7 +1133,12 @@ module decode_tb;
     do_reset();
     case28_two_jals();
 
-    // Case 29 is the Makefile: PARAMS_decode runs this suite at WIDTH 1..4.
+    do_reset();
+    case29_waw_chain();               tick();
+    case30_waw_non_allocating();      tick();
+    case31_waw_different_regs();      tick();
+
+    // Case 32 is the Makefile: PARAMS_decode runs this suite at WIDTH 1..4.
     $display("PASS decode_tb (WIDTH = %0d, %0d checks)", WIDTH, checks);
     $finish;
   end
