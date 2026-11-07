@@ -5,7 +5,8 @@ Behavior is specified in `docsDecode/Decode.md` (destined for the wiki as the
 the ports mean and what a consumer may assume. When the two disagree, the spec
 wins and this file is stale — report it.
 
-**Status: implemented.** `make test T=decode` passes at `WIDTH` 1, 2, 3 and 4;
+**Status: implemented.** `make test T=decode` passes at `WIDTH` 1, 2, 3 and 4,
+`make test T=decode_rename` covers the hand-off to `PRFRename`, and
 `make lint` is clean.
 
 ## Parameters
