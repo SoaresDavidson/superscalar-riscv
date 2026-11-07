@@ -37,11 +37,53 @@ na estação de reserva (RS). Há duas RS: a INT (ALU e desvio) e a MEM
 
 ## Condição de aceite
 
-*A escrever.*
+Por slot `k`, o dispatch monta quatro máscaras de `W` bits: `valid[k]` (pede
+ROB), `has_dest[k]` (pede tag), `to_int[k]` e `to_mem[k]` (pedem RS). As
+contagens `n_rob`, `n_int` e `n_mem` são o número de bits em 1 de cada
+máscara.
+
+```
+space_ok     = rob_free >= n_rob && int_free >= n_int && mem_free >= n_mem
+decode_ready = space_ok && rename.dispatch_ready
+accept       = decode.out_valid && decode_ready
+```
+
+- `decode_ready` vai para o `out_ready` do Decode; o bundle entra quando
+  `accept = 1`.
+- A condição das tags é calculada pelo Rename (`dispatch_ready`).
+- `space_ok` é ligado ao `rob_ready` do Rename, para que ele só aloque tags
+  quando o bundle entra (ver item 4).
 
 ## Entrada na RS
 
-*A escrever.*
+Uma fonte que a instrução não usa entra com `ready = 1`. A instrução está
+pronta para emissão quando `busy && src1_ready && src2_ready`.
+
+**RS INT** (portas 0 e 1)
+
+| Grupo | Campos |
+|---|---|
+| Controle | `busy`, `port0_only` (1 para `UC_BRANCH` e `UC_JUMP`) |
+| Fonte 1 e fonte 2 | `src*_ready`, `src*_tag`, `src*_data` |
+| Execução | `op`, `imm`, `use_imm`, `pc`, `dst_tag`, `wr_en`, `age`, `pred_taken`, `pred_target` |
+
+Na emissão, os campos de execução e `src1_data`/`src2_data` formam o
+`fu_req_t`; `dst_tag` vai para o campo `rd`.
+
+**RS MEM** (porta 2)
+
+| Grupo | Campos |
+|---|---|
+| Controle | `busy` |
+| Fonte 1 (base do endereço) | `src1_ready`, `src1_tag`, `src1_data` |
+| Fonte 2 (dado do store; load entra pronto) | `src2_ready`, `src2_tag`, `src2_data` |
+| Execução | `imm`, `is_store`, `mem_size`, `mem_unsigned`, `dst_tag`, `wr_en`, `age` |
+
+Em relação à RS INT, saem `port0_only` (uma só porta), `use_imm` (o endereço
+é sempre `rs1 + imm`), `pc` (guardado no ROB), `op`, `pred_taken` e
+`pred_target`.
+
+`src1_data` e `src2_data` dependem do item 7.
 
 ## Casos difíceis
 
@@ -89,3 +131,10 @@ Cada item diz por que afeta o dispatch.
 10. **Modelo de flush.** O Execute faz flush seletivo na execução; o
     `PRFRename` só se recupera no commit. Define o que o dispatch e as RS
     descartam, e quando.
+
+**Memória**
+
+11. **Emissão do store.** O store sai da RS MEM só com os dois operandos
+    prontos, ou calcula o endereço assim que a base (`src1`) fica pronta? O
+    dado (`src2`) só é necessário no commit. Proposta inicial: esperar os
+    dois. Depende da parte de memória (Shen & Lipasti, 5.3).
