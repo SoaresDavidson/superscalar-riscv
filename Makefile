@@ -4,8 +4,11 @@
 
 # Packages come first: iverilog resolves `import` in command-line order, so a
 # consumer compiled before its package is a syntax error. Both lists are
-# sorted, because the order `find` returns is not stable.
-PKGS   := $(shell find rtl -name '*_pkg.sv' | sort)
+# sorted, because the order `find` returns is not stable. execute_pkg goes
+# before every other package, because the others import it (dispatch_pkg would
+# otherwise sort ahead of it).
+BASE_PKG := rtl/execute/execute_pkg.sv
+PKGS   := $(BASE_PKG) $(filter-out $(BASE_PKG),$(shell find rtl -name '*_pkg.sv' | sort))
 MODS   := $(shell find rtl -name '*.sv' ! -name '*_pkg.sv' | sort)
 RTL    := $(PKGS) $(MODS)
 SUITES := unit integration
