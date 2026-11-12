@@ -121,6 +121,36 @@ module dispatch_tb;
     return mk(AGU_LW, rd, 1'b1, rs1, 1'b1, 5'd0, 1'b0);
   endfunction
 
+  function automatic uop_t i_sw(logic [4:0] rs2, logic [4:0] rs1);
+    return mk(AGU_SW, 5'd0, 1'b0, rs1, 1'b1, rs2, 1'b1);
+  endfunction
+
+  function automatic uop_t i_jalr(logic [4:0] rd, logic [4:0] rs1);
+    return mk(BR_JALR, rd, 1'b1, rs1, 1'b1, 5'd0, 1'b0);
+  endfunction
+
+  function automatic uop_t i_jal(logic [4:0] rd);
+    return mk(ALU_PC4, rd, 1'b1, 5'd0, 1'b0, 5'd0, 1'b0);
+  endfunction
+
+  function automatic uop_t i_sd(logic [4:0] rs2, logic [4:0] rs1);
+    return mk(AGU_SD, 5'd0, 1'b0, rs1, 1'b1, rs2, 1'b1);
+  endfunction
+
+  function automatic uop_t i_illegal();
+    uop_t u;
+    u = mk(OP_NONE, 5'd0, 1'b0, 5'd0, 1'b0, 5'd0, 1'b0);
+    u.illegal = 1'b1;
+    return u;
+  endfunction
+
+  function automatic uop_t i_ecall();
+    uop_t u;
+    u = mk(OP_NONE, 5'd0, 1'b0, 5'd0, 1'b0, 5'd0, 1'b0);
+    u.serializing = 1'b1;
+    return u;
+  endfunction
+
   // An invalid slot that still carries garbage in op: nothing may be
   // allocated for it, whatever op says.
   function automatic uop_t i_invalid(exec_op_t garbage_op);
@@ -175,8 +205,32 @@ module dispatch_tb;
     chk(int_port0_only(0) === 1'b1, "beq (FU_BRANCH) is port0_only");
     chk(int_port0_only(1) === 1'b0, "add can use either port");
 
-    // T2: sw, jalr, jal          -- to write
-    // T3: illegal, ecall, sd     -- to write
+    // T2: sw, jalr, jal in slots 0, 1, 2.
+    cur = "T2 sw/jalr/jal";
+    env_all_free();
+    dec_uop[0] = i_sw(5'd6, 5'd5);    // sw x6, 0(x5)
+    dec_uop[1] = i_jalr(5'd1, 5'd5);  // jalr x1, 0(x5)
+    dec_uop[2] = i_jal(5'd1);         // jal x1, L
+    #1;
+    chk(dec_ready === 1'b1,         "bundle must be accepted: everything is free");
+    chk(rob_alloc === 3'b111,       "every valid slot allocates a ROB entry");
+    chk(int_wr    === 3'b110,       "jalr and jal go to RS INT");
+    chk(mem_wr    === 3'b001,       "sw goes to RS MEM");
+    chk(int_port0_only(1) === 1'b1, "jalr (FU_BRANCH) is port0_only");
+    chk(int_port0_only(2) === 1'b0, "jal (ALU_PC4) can use either port");
+
+    // T3: illegal, ecall, sd in slots 0, 1, 2.
+    cur = "T3 illegal/ecall/sd";
+    env_all_free();
+    dec_uop[0] = i_illegal();         // illegal encoding
+    dec_uop[1] = i_ecall();           // ecall
+    dec_uop[2] = i_sd(5'd7, 5'd5);    // sd x7, 0(x5)
+    #1;
+    chk(dec_ready === 1'b1,   "bundle must be accepted: everything is free");
+    chk(rob_alloc === 3'b111, "FU_NONE slots still allocate a ROB entry");
+    chk(int_wr    === 3'b000, "no slot goes to RS INT");
+    chk(mem_wr    === 3'b100, "sd goes to RS MEM");
+
     // T4: add, addi, lui         -- to write
     // T5: ld, invalid, invalid   -- to write
     // A1..A8: acceptance table   -- to write
