@@ -11,6 +11,7 @@
 // Groups:
 //   T1..T5  routing: which slot goes to which RS, port0_only, ROB allocation
 //   A1..A8  acceptance: when the bundle enters and which ready signals rise
+//           (table-driven: one accept_case line per case)
 
 module dispatch_tb;
   import execute_pkg::*;
@@ -198,6 +199,37 @@ module dispatch_tb;
   endtask
 
   // ---------------------------------------------------------------------------
+  // Group A: acceptance. Always the T1 bundle (beq, add, lw), which needs
+  // 3 ROB entries, 2 tags, 2 RS INT entries and 1 RS MEM entry. Each case
+  // only changes the neighbours' answers and states three expectations:
+  //   accept   : the bundle enters (seen as rob_alloc/int_wr/mem_wr)
+  //   dec_rdy  : dec_ready, "I have room" (space_ok && tags), to Decode
+  //   space_ok : ren_rob_ready, so that Rename only allocates when it fits
+  // ---------------------------------------------------------------------------
+  task automatic accept_case(string name,
+                             int rob, logic tags, int ints, int mems,
+                             logic valid, logic fl,
+                             logic exp_accept, logic exp_dec_rdy, logic exp_space_ok);
+    cur = name;
+    env_all_free();
+    rob_free           = ROB_CNT_W'(rob);
+    ren_dispatch_ready = tags;
+    int_free           = INT_CNT_W'(ints);
+    mem_free           = MEM_CNT_W'(mems);
+    dec_valid          = valid;
+    flush              = fl;
+    dec_uop[0] = i_beq(5'd5, 5'd0);
+    dec_uop[1] = i_add(5'd5, 5'd1, 5'd2);
+    dec_uop[2] = i_lw(5'd6, 5'd5);
+    #1;
+    chk(dec_ready     === exp_dec_rdy,  "dec_ready (out_ready to Decode)");
+    chk(ren_rob_ready === exp_space_ok, "ren_rob_ready (space_ok to Rename)");
+    chk(rob_alloc === (exp_accept ? 3'b111 : 3'b000), "rob_alloc follows accept");
+    chk(int_wr    === (exp_accept ? 3'b011 : 3'b000), "int_wr follows accept");
+    chk(mem_wr    === (exp_accept ? 3'b100 : 3'b000), "mem_wr follows accept");
+  endtask
+
+  // ---------------------------------------------------------------------------
   // Cases
   // ---------------------------------------------------------------------------
   initial begin
@@ -270,7 +302,17 @@ module dispatch_tb;
     chk(int_wr    === 3'b000,       "invalid slots never go to RS INT, whatever op says");
     chk(mem_wr    === 3'b001,       "ld (slot 0) goes to RS MEM");
     chk(int_port0_only(2) === 1'b0, "garbage BR_BEQ in an invalid slot is not port0_only");
-    // A1..A8: acceptance table   -- to write
+
+    // A1..A8: acceptance. One line per row of the table in Dispatch.md.
+    //            name                    ROB tags INT MEM valid flush | accept dec_rdy space_ok
+    accept_case("A1 everything free",      8, 1,   8,  4,  1,    0,      1,     1,      1);
+    accept_case("A2 ROB short (2 < 3)",    2, 1,   8,  4,  1,    0,      0,     0,      0);
+    accept_case("A3 RS INT short (1 < 2)", 8, 1,   1,  4,  1,    0,      0,     0,      0);
+    accept_case("A4 RS MEM full",          8, 1,   8,  0,  1,    0,      0,     0,      0);
+    accept_case("A5 no tags",              8, 0,   8,  4,  1,    0,      0,     0,      1);
+    accept_case("A6 exact fit",            3, 1,   2,  1,  1,    0,      1,     1,      1);
+    accept_case("A7 Decode has nothing",   8, 1,   8,  4,  0,    0,      0,     1,      1);
+    accept_case("A8 flush",                8, 1,   8,  4,  1,    1,      0,     1,      1);
 
     $display("PASS dispatch_tb (%0d checks)", checks);
     $finish;
