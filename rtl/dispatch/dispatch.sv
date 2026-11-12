@@ -63,20 +63,68 @@ module dispatch
     output rs_mem_entry_t [W-1:0]    mem_entry
 );
 
-  // TODO: logic. See Dispatch.md, sections "Regras" and "Condição de aceite".
-  assign dec_ready          = 1'b0;
+  // ---------------------------------------------------------------------------
+  // Per-slot classification (Dispatch.md, "Regras")
+  // ---------------------------------------------------------------------------
+  logic [W-1:0] slot_v;     // slot has an instruction
+  logic [W-1:0] to_int;     // slot goes to RS INT
+  logic [W-1:0] to_mem;     // slot goes to RS MEM
+  logic [W-1:0] port0;      // slot is port0_only
+
+  for (genvar k = 0; k < W; k++) begin : g_slot
+    uop_t     u;
+    fu_kind_t fu;
+    assign u  = dec_uop[k];
+    assign fu = fu_of(u.op);
+
+    assign slot_v[k] = dec_valid && u.valid;
+    assign to_int[k] = slot_v[k] && (fu == FU_ALU || fu == FU_BRANCH);
+    assign to_mem[k] = slot_v[k] && (fu == FU_AGU);
+    assign port0[k]  = slot_v[k] && (fu == FU_BRANCH);
+  end
+
+  // ---------------------------------------------------------------------------
+  // Counts (Dispatch.md, "Condição de aceite")
+  // ---------------------------------------------------------------------------
+  localparam int CNT_W = $clog2(W + 1);
+  logic [CNT_W-1:0] n_rob, n_int, n_mem;
+
+  always_comb begin
+    n_rob = '0;
+    n_int = '0;
+    n_mem = '0;
+    for (int k = 0; k < W; k++) begin
+      n_rob += slot_v[k];
+      n_int += to_int[k];
+      n_mem += to_mem[k];
+    end
+  end
+
+  // ---------------------------------------------------------------------------
+  // Acceptance
+  // ---------------------------------------------------------------------------
+  logic space_ok, accept;
+
+  assign space_ok  = (rob_free >= ROB_CNT_W'(n_rob)) &&
+                     (int_free >= INT_CNT_W'(n_int)) &&
+                     (mem_free >= MEM_CNT_W'(n_mem));
+  assign dec_ready = space_ok && ren_dispatch_ready;
+  assign accept    = dec_valid && dec_ready && !flush;
+
+  assign ren_rob_ready = space_ok;
+  assign rob_alloc     = {W{accept}} & slot_v;
+  assign int_wr        = {W{accept}} & to_int;
+  assign mem_wr        = {W{accept}} & to_mem;
+
+  // TODO (next steps): Rename requests, RS and ROB entries.
   assign ren_dispatch_valid = 1'b0;
   assign ren_slot_valid     = '0;
   assign ren_rs1            = '0;
   assign ren_rs2            = '0;
   assign ren_rd             = '0;
   assign ren_writes_rd      = '0;
-  assign ren_rob_ready      = 1'b0;
-  assign rob_alloc          = '0;
   assign rob_entry          = '0;
-  assign int_wr             = '0;
   assign int_entry          = '0;
-  assign mem_wr             = '0;
   assign mem_entry          = '0;
 
 endmodule
