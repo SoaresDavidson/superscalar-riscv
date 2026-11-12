@@ -3,7 +3,11 @@
 // every valid slot.
 // Spec: docs/dispatch/Dispatch.md.
 //
-// STATUS: in progress. ROB entries are still tied to zero.
+// STATUS: complete for this version. Pending (Dispatch.md, open items): age
+// (item 3), RS value capture (item 4), prediction fields (item 5).
+// Unused on purpose: clk and reset (Dispatch is combinational; every block
+// takes them), rob_tail (waits for the age decision, open item 3), and the
+// uop fields each entry builder does not need.
 /* verilator lint_off UNUSEDSIGNAL */
 module dispatch
   import execute_pkg::*;
@@ -107,6 +111,21 @@ module dispatch
     return e;
   endfunction
 
+function automatic rob_entry_t make_rob_entry(
+      uop_t u, tag_t dst, tag_t old, fu_kind_t fu);
+    rob_entry_t e;
+    e             = '0;
+    e.pc          = u.pc;
+    e.rd          = u.rd;
+    e.has_dest    = u.has_dest;
+    e.dst_tag     = dst;
+    e.old_tag     = old;
+    e.done        = fu == FU_NONE;
+    e.illegal     = u.illegal;
+    e.serializing  = u.serializing;
+    return e;
+  endfunction
+
   // ---------------------------------------------------------------------------
   // Per-slot classification (Dispatch.md, "Regras")
   // ---------------------------------------------------------------------------
@@ -140,7 +159,9 @@ module dispatch
                                          ren_src1_tag[k], ren_src2_tag[k],
                                          ren_src1_data[k], ren_src2_data[k],
                                          ren_dst_tag[k]);
-                                             
+
+    assign rob_entry[k] = make_rob_entry(u, ren_dst_tag[k], ren_old_tag[k], fu);
+
   end
 
   assign ren_slot_valid     = slot_v;
@@ -178,9 +199,6 @@ module dispatch
   assign rob_alloc     = {W{accept}} & slot_v;
   assign int_wr        = {W{accept}} & to_int;
   assign mem_wr        = {W{accept}} & to_mem;
-
-  // TODO (next step): ROB entries.
-  assign rob_entry          = '0;
 
 endmodule
 /* verilator lint_on UNUSEDSIGNAL */
