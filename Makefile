@@ -23,6 +23,7 @@ vpath %_tb.sv $(addprefix tb/,$(SUITES))
 # tests are PRFRename and PRFRenameBundle, and they take no parameter sets --
 # PRFRename_tb fixes W = 1 and PRFRenameBundle_tb fixes W = 3, WB_N = 2.
 PARAMS_decode := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
+PARAMS_fetch  := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
 
 T ?= $(TESTS)
 
