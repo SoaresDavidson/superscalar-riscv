@@ -12,6 +12,7 @@
 //   T1..T5  routing: which slot goes to which RS, port0_only, ROB allocation
 //   A1..A8  acceptance: when the bundle enters and which ready signals rise
 //           (table-driven: one accept_case line per case)
+//   C1..C4  contents: what Dispatch sends to Rename, to each RS and to the ROB
 
 module dispatch_tb;
   import execute_pkg::*;
@@ -83,6 +84,25 @@ module dispatch_tb;
     rs_int_entry_t e;
     e = int_entry[k];
     return e.port0_only;
+  endfunction
+
+  // Copies of one slot's output, so a case can read e.field safely.
+  function automatic rs_int_entry_t int_at(int k);
+    rs_int_entry_t e;
+    e = int_entry[k];
+    return e;
+  endfunction
+
+  function automatic rs_mem_entry_t mem_at(int k);
+    rs_mem_entry_t e;
+    e = mem_entry[k];
+    return e;
+  endfunction
+
+  function automatic rob_entry_t rob_at(int k);
+    rob_entry_t e;
+    e = rob_entry[k];
+    return e;
   endfunction
 
   // ---------------------------------------------------------------------------
@@ -233,6 +253,10 @@ module dispatch_tb;
   // Cases
   // ---------------------------------------------------------------------------
   initial begin
+    uop_t          u;
+    rs_int_entry_t ei;
+    rs_mem_entry_t em;
+    rob_entry_t    er;
     checks = 0;
 
     // T1: one slot for each RS. beq, add, lw in slots 0, 1, 2.
@@ -313,6 +337,107 @@ module dispatch_tb;
     accept_case("A6 exact fit",            3, 1,   2,  1,  1,    0,      1,     1,      1);
     accept_case("A7 Decode has nothing",   8, 1,   8,  4,  0,    0,      0,     1,      1);
     accept_case("A8 flush",                8, 1,   8,  4,  1,    1,      0,     1,      1);
+
+
+    // C1: requests to Rename. A source that is x0 or unused goes as 0, even
+    // when the rs field holds garbage; writes_rd only for slots with has_dest.
+    cur = "C1 requests to Rename";
+    env_all_free();
+    dec_uop[0] = i_beq(5'd5, 5'd0);          // beq x5, x0: rs2 is x0
+    dec_uop[1] = i_add(5'd5, 5'd1, 5'd2);    // add x5, x1, x2
+    u = i_lw(5'd6, 5'd5);                    // lw  x6, 0(x5): no rs2...
+    u.rs2 = 5'd31;                           // ...but garbage in the field
+    dec_uop[2] = u;
+    #1;
+    chk(ren_dispatch_valid === 1'b1,  "dispatch_valid = dec_valid && !flush");
+    chk(ren_slot_valid === 3'b111,    "slot_valid follows uop.valid");
+    chk(ren_rs1[0] === 5'd5,          "beq: rs1 = x5");
+    chk(ren_rs2[0] === 5'd0,          "beq: rs2 = x0 goes as 0");
+    chk(ren_rs1[1] === 5'd1,          "add: rs1 = x1");
+    chk(ren_rs2[1] === 5'd2,          "add: rs2 = x2");
+    chk(ren_rs1[2] === 5'd5,          "lw: rs1 = x5");
+    chk(ren_rs2[2] === 5'd0,          "lw: unused rs2 goes as 0, not the garbage 31");
+    chk(ren_rd[1] === 5'd5,           "add: rd = x5");
+    chk(ren_rd[2] === 5'd6,           "lw: rd = x6");
+    chk(ren_writes_rd === 3'b110,     "writes_rd only for add and lw");
+
+    // C2: RS INT entry of the add in slot 1. Rename says src1 is ready
+    // (with a value) and src2 is still waiting for its tag.
+    cur = "C2 RS INT entry";
+    env_all_free();
+    dec_uop[0] = i_beq(5'd5, 5'd0);
+    u = i_add(5'd5, 5'd1, 5'd2);
+    u.pc = 64'h1004;
+    dec_uop[1] = u;
+    dec_uop[2] = i_lw(5'd6, 5'd5);
+    ren_src_ready[1] = 2'b01;                // [0] = src1 ready, [1] = src2 waiting
+    ren_src1_data[1] = 64'h1111;
+    #1;
+    ei = int_at(1);
+    chk(ei.busy === 1'b1,             "add: busy");
+    chk(ei.port0_only === 1'b0,       "add: not port0_only");
+    chk(ei.src1_ready === 1'b1,       "add: src1_ready from Rename");
+    chk(ei.src1_tag === TAG_W'(11),   "add: src1_tag from Rename");
+    chk(ei.src1_data === 64'h1111,    "add: src1_data from Rename");
+    chk(ei.src2_ready === 1'b0,       "add: src2 still waiting");
+    chk(ei.src2_tag === TAG_W'(21),   "add: src2_tag = the tag it waits for");
+    chk(ei.op === ALU_ADD,            "add: op copied from uop");
+    chk(ei.use_imm === 1'b0,          "add: second operand is rs2");
+    chk(ei.pc === 64'h1004,           "add: pc copied from uop");
+    chk(ei.dst_tag === TAG_W'(41),    "add: dst_tag from Rename");
+    chk(ei.wr_en === 1'b1,            "add: writes rd");
+    ei = int_at(0);
+    chk(ei.op === BR_BEQ,             "beq: op copied from uop");
+    chk(ei.port0_only === 1'b1,       "beq: port0_only");
+    chk(ei.wr_en === 1'b0,            "beq: writes no register");
+
+    // C3: RS MEM entry of the lw in slot 2. The base (src1) is waiting; the
+    // unused src2 enters ready.
+    cur = "C3 RS MEM entry";
+    env_all_free();
+    dec_uop[0] = i_beq(5'd5, 5'd0);
+    dec_uop[1] = i_add(5'd5, 5'd1, 5'd2);
+    u = i_lw(5'd6, 5'd5);
+    u.imm = 64'd8;                           // lw x6, 8(x5)
+    dec_uop[2] = u;
+    ren_src_ready[2] = 2'b10;                // src1 waiting, src2 (unused) ready
+    #1;
+    em = mem_at(2);
+    chk(em.busy === 1'b1,             "lw: busy");
+    chk(em.src1_ready === 1'b0,       "lw: base still waiting");
+    chk(em.src1_tag === TAG_W'(12),   "lw: src1_tag from Rename");
+    chk(em.src2_ready === 1'b1,       "lw: unused src2 enters ready");
+    chk(em.op === AGU_LW,             "lw: op copied from uop");
+    chk(em.imm === 64'd8,             "lw: imm copied from uop");
+    chk(em.dst_tag === TAG_W'(42),    "lw: dst_tag from Rename");
+    chk(em.wr_en === 1'b1,            "lw: writes rd");
+
+    // C4: ROB entries. FU_NONE slots enter already done, with their flag;
+    // a normal instruction carries what commit needs.
+    cur = "C4 ROB entries";
+    env_all_free();
+    u = i_illegal();  u.pc = 64'h2000;  dec_uop[0] = u;
+    u = i_ecall();    u.pc = 64'h2004;  dec_uop[1] = u;
+    u = i_add(5'd5, 5'd1, 5'd2);  u.pc = 64'h2008;  dec_uop[2] = u;
+    #1;
+    chk(rob_alloc === 3'b111,         "all three allocate a ROB entry");
+    er = rob_at(0);
+    chk(er.pc === 64'h2000,           "illegal: pc for the exception");
+    chk(er.done === 1'b1,             "illegal: no FU will answer, enters done");
+    chk(er.illegal === 1'b1,          "illegal: flag set");
+    chk(er.serializing === 1'b0,      "illegal: not serializing");
+    chk(er.has_dest === 1'b0,         "illegal: writes no register");
+    er = rob_at(1);
+    chk(er.done === 1'b1,             "ecall: enters done");
+    chk(er.serializing === 1'b1,      "ecall: serializing");
+    chk(er.illegal === 1'b0,          "ecall: not illegal");
+    er = rob_at(2);
+    chk(er.pc === 64'h2008,           "add: pc");
+    chk(er.done === 1'b0,             "add: waits for its FU");
+    chk(er.has_dest === 1'b1,         "add: writes rd");
+    chk(er.rd === 5'd5,               "add: architectural rd");
+    chk(er.dst_tag === TAG_W'(42),    "add: dst_tag (slot 2) from Rename");
+    chk(er.old_tag === TAG_W'(52),    "add: old_tag (slot 2), freed at commit");
 
     $display("PASS dispatch_tb (%0d checks)", checks);
     $finish;
