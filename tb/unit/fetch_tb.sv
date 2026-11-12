@@ -33,6 +33,31 @@ module fetch_tb;
     assign imem_rdata[g] = imem[imem_addr[g][9:2]];
   end
 
+  localparam logic [XLEN-1:0] BUNDLE = XLEN'(4 * WIDTH);  // bytes per bundle
+
+  // The bundle on the output must be valid, start at pc0, and carry the
+  // instructions stored at pc0, pc0 + 4, ... Each slot is copied to a scalar
+  // first: Icarus 12 misreads a variable index followed by a second select.
+  task automatic expect_bundle(input string tc, input logic [XLEN-1:0] pc0);
+    logic [XLEN-1:0] pc_k;
+    logic [XLEN-1:0] want;
+    logic [31:0]     inst_k;
+    if (out_valid !== 1'b1)
+      $fatal(1, "%s: out_valid = %b, expected 1", tc, out_valid);
+    if (out_slot_valid !== '1)
+      $fatal(1, "%s: out_slot_valid = %b, expected all ones", tc, out_slot_valid);
+    for (int k = 0; k < WIDTH; k++) begin
+      pc_k   = out_pc[k];
+      inst_k = out_inst[k];
+      want   = pc0 + XLEN'(4 * k);
+      if (pc_k !== want)
+        $fatal(1, "%s: slot %0d pc = %h, expected %h", tc, k, pc_k, want);
+      if (inst_k !== imem[want[9:2]])
+        $fatal(1, "%s: slot %0d inst = %h, expected %h", tc, k, inst_k, imem[want[9:2]]);
+      checks++;
+    end
+  endtask
+
   initial begin
     for (int i = 0; i < MEM_WORDS; i++) imem[i] = 32'h1000_0000 + 32'(i);
 
@@ -43,6 +68,23 @@ module fetch_tb;
     @(posedge clk); #1;
     if (out_valid !== 1'b0) $fatal(1, "T1: out_valid = %b during reset, expected 0", out_valid);
     checks++;
+
+    // T2: after reset, the bundle starts at RESET_PC with every slot valid.
+    reset = 1'b0; #1;
+    expect_bundle("T2", '0);
+
+    // T3: sequential fetch, one bundle further per accepted cycle.
+    @(posedge clk); #1; expect_bundle("T3", BUNDLE);
+    @(posedge clk); #1; expect_bundle("T3", 2 * BUNDLE);
+
+    // T4: stall. With out_ready = 0 the bundle already on the output
+    // (2 * BUNDLE) stays there; fetch resumes when out_ready returns.
+    out_ready = 1'b0;
+    repeat (3) begin
+      @(posedge clk); #1; expect_bundle("T4", 2 * BUNDLE);
+    end
+    out_ready = 1'b1;
+    @(posedge clk); #1; expect_bundle("T4", 3 * BUNDLE);
 
     $display("PASS fetch_tb (WIDTH = %0d, %0d checks)", WIDTH, checks);
     $finish;

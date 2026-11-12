@@ -1,8 +1,7 @@
 // Fetch stage. Spec: docs/fetch/Fetch.md.
 //
-// This commit: module skeleton with every port of the spec and the reset
-// behavior only (test case T1). Sequential fetch, stall and redirects come
-// in the next commits, each with its test cases.
+// Implemented so far: reset (T1, T2), sequential fetch (T3) and stall (T4).
+// Redirects come in the next commit, with their test cases.
 module fetch
   import execute_pkg::*;
 #(
@@ -34,8 +33,11 @@ module fetch
 
   xlen_t pc_q;
 
+  // Next PC: reset, then one bundle further each time Decode accepts.
+  // Without out_ready the register does not load: PC and bundle hold (T4).
   always_ff @(posedge clk) begin
-    if (reset) pc_q <= RESET_PC;
+    if (reset)          pc_q <= RESET_PC;
+    else if (out_ready) pc_q <= pc_q + XLEN'(4 * WIDTH);   // T3
   end
 
   for (genvar k = 0; k < WIDTH; k++) begin : g_slot
@@ -47,9 +49,9 @@ module fetch
   assign out_slot_valid = '1;
   assign out_valid      = !reset;   // T1
 
-  // Not used yet: stall (T4) and redirects (T5 to T7).
+  // Not used yet: redirects (T5 to T7).
   logic unused;
-  assign unused = &{1'b0, out_ready, dec_redirect_valid, dec_redirect_pc,
+  assign unused = &{1'b0, dec_redirect_valid, dec_redirect_pc,
                     be_redirect_valid, be_redirect_pc};
 
 endmodule
