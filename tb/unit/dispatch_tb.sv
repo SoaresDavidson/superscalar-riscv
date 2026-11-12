@@ -113,6 +113,14 @@ module dispatch_tb;
     return mk(ALU_ADD, rd, 1'b1, rs1, 1'b1, rs2, 1'b1);
   endfunction
 
+  function automatic uop_t i_addi(logic [4:0] rd, logic [4:0] rs1);
+    return mk(ALU_ADD, rd, 1'b1, rs1, 1'b1, 5'd0, 1'b0);
+  endfunction
+
+  function automatic uop_t i_lui(logic [4:0] rd);
+    return mk(ALU_LUI, rd, 1'b1, 5'd0, 1'b0, 5'd0, 1'b0);
+  endfunction
+
   function automatic uop_t i_beq(logic [4:0] rs1, logic [4:0] rs2);
     return mk(BR_BEQ, 5'd0, 1'b0, rs1, 1'b1, rs2, 1'b1);
   endfunction
@@ -149,6 +157,10 @@ module dispatch_tb;
     u = mk(OP_NONE, 5'd0, 1'b0, 5'd0, 1'b0, 5'd0, 1'b0);
     u.serializing = 1'b1;
     return u;
+  endfunction
+
+  function automatic uop_t i_ld(logic [4:0] rd, logic [4:0] rs1);
+    return mk(AGU_LD, rd, 1'b1, rs1, 1'b1, 5'd0, 1'b0);
   endfunction
 
   // An invalid slot that still carries garbage in op: nothing may be
@@ -231,8 +243,33 @@ module dispatch_tb;
     chk(int_wr    === 3'b000, "no slot goes to RS INT");
     chk(mem_wr    === 3'b100, "sd goes to RS MEM");
 
-    // T4: add, addi, lui         -- to write
-    // T5: ld, invalid, invalid   -- to write
+    // T4: add, addi, lui in slots 0, 1, 2 (all three to RS INT).
+    cur = "T4 add/addi/lui";
+    env_all_free();
+    dec_uop[0] = i_add(5'd5, 5'd1, 5'd2);   // add  x5, x1, x2
+    dec_uop[1] = i_addi(5'd6, 5'd5);        // addi x6, x5, imm
+    dec_uop[2] = i_lui(5'd7);               // lui  x7, imm
+    #1;
+    chk(dec_ready === 1'b1,         "bundle must be accepted: everything is free");
+    chk(rob_alloc === 3'b111,       "every valid slot allocates a ROB entry");
+    chk(int_wr    === 3'b111,       "add, addi and lui all go to RS INT");
+    chk(mem_wr    === 3'b000,       "no slot goes to RS MEM");
+    chk(int_port0_only(0) === 1'b0, "add can use either port");
+    chk(int_port0_only(1) === 1'b0, "addi can use either port");
+    chk(int_port0_only(2) === 1'b0, "lui can use either port");
+
+    // T5: ld, invalid, invalid. Slot 2 carries a garbage BR_BEQ.
+    cur = "T5 ld/invalid/invalid";
+    env_all_free();
+    dec_uop[0] = i_ld(5'd8, 5'd5);     // ld x8, 0(x5)
+    dec_uop[1] = i_invalid(ALU_ADD);   // invalid slot
+    dec_uop[2] = i_invalid(BR_BEQ);    // invalid slot with a garbage BR_BEQ
+    #1;
+    chk(dec_ready === 1'b1,         "a partly empty bundle is accepted when there is room");
+    chk(rob_alloc === 3'b001,       "only the valid slot allocates a ROB entry");
+    chk(int_wr    === 3'b000,       "invalid slots never go to RS INT, whatever op says");
+    chk(mem_wr    === 3'b001,       "ld (slot 0) goes to RS MEM");
+    chk(int_port0_only(2) === 1'b0, "garbage BR_BEQ in an invalid slot is not port0_only");
     // A1..A8: acceptance table   -- to write
 
     $display("PASS dispatch_tb (%0d checks)", checks);
