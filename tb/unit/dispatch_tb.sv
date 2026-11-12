@@ -9,7 +9,7 @@
 // (slot 2, slot 1, slot 0, left to right).
 //
 // Groups:
-//   T1..T5  routing: which slot goes to which RS, port0_only, ROB allocation
+//   T1..T5  routing: which slot goes to which RS, ROB allocation
 //   A1..A8  acceptance: when the bundle enters and which ready signals rise
 //           (table-driven: one accept_case line per case)
 //   C1..C4  contents: what Dispatch sends to Rename, to each RS and to the ROB
@@ -80,12 +80,6 @@ module dispatch_tb;
   endtask
 
   // Icarus: never read arr[k].field directly; copy the element first.
-  function automatic logic int_port0_only(int k);
-    rs_int_entry_t e;
-    e = int_entry[k];
-    return e.port0_only;
-  endfunction
-
   // Copies of one slot's output, so a case can read e.field safely.
   function automatic rs_int_entry_t int_at(int k);
     rs_int_entry_t e;
@@ -270,8 +264,6 @@ module dispatch_tb;
     chk(rob_alloc === 3'b111,    "every valid slot allocates a ROB entry");
     chk(int_wr    === 3'b011,    "beq and add go to RS INT");
     chk(mem_wr    === 3'b100,    "lw goes to RS MEM");
-    chk(int_port0_only(0) === 1'b1, "beq (FU_BRANCH) is port0_only");
-    chk(int_port0_only(1) === 1'b0, "add can use either port");
 
     // T2: sw, jalr, jal in slots 0, 1, 2.
     cur = "T2 sw/jalr/jal";
@@ -284,8 +276,6 @@ module dispatch_tb;
     chk(rob_alloc === 3'b111,       "every valid slot allocates a ROB entry");
     chk(int_wr    === 3'b110,       "jalr and jal go to RS INT");
     chk(mem_wr    === 3'b001,       "sw goes to RS MEM");
-    chk(int_port0_only(1) === 1'b1, "jalr (FU_BRANCH) is port0_only");
-    chk(int_port0_only(2) === 1'b0, "jal (ALU_PC4) can use either port");
 
     // T3: illegal, ecall, sd in slots 0, 1, 2.
     cur = "T3 illegal/ecall/sd";
@@ -310,9 +300,6 @@ module dispatch_tb;
     chk(rob_alloc === 3'b111,       "every valid slot allocates a ROB entry");
     chk(int_wr    === 3'b111,       "add, addi and lui all go to RS INT");
     chk(mem_wr    === 3'b000,       "no slot goes to RS MEM");
-    chk(int_port0_only(0) === 1'b0, "add can use either port");
-    chk(int_port0_only(1) === 1'b0, "addi can use either port");
-    chk(int_port0_only(2) === 1'b0, "lui can use either port");
 
     // T5: ld, invalid, invalid. Slot 2 carries a garbage BR_BEQ.
     cur = "T5 ld/invalid/invalid";
@@ -325,7 +312,6 @@ module dispatch_tb;
     chk(rob_alloc === 3'b001,       "only the valid slot allocates a ROB entry");
     chk(int_wr    === 3'b000,       "invalid slots never go to RS INT, whatever op says");
     chk(mem_wr    === 3'b001,       "ld (slot 0) goes to RS MEM");
-    chk(int_port0_only(2) === 1'b0, "garbage BR_BEQ in an invalid slot is not port0_only");
 
     // A1..A8: acceptance. One line per row of the table in Dispatch.md.
     //            name                    ROB tags INT MEM valid flush | accept dec_rdy space_ok
@@ -375,7 +361,6 @@ module dispatch_tb;
     #1;
     ei = int_at(1);
     chk(ei.busy === 1'b1,             "add: busy");
-    chk(ei.port0_only === 1'b0,       "add: not port0_only");
     chk(ei.src1_ready === 1'b1,       "add: src1_ready from Rename");
     chk(ei.src1_tag === TAG_W'(11),   "add: src1_tag from Rename");
     chk(ei.src1_data === 64'h1111,    "add: src1_data from Rename");
@@ -388,7 +373,6 @@ module dispatch_tb;
     chk(ei.wr_en === 1'b1,            "add: writes rd");
     ei = int_at(0);
     chk(ei.op === BR_BEQ,             "beq: op copied from uop");
-    chk(ei.port0_only === 1'b1,       "beq: port0_only");
     chk(ei.wr_en === 1'b0,            "beq: writes no register");
 
     // C3: RS MEM entry of the lw in slot 2. The base (src1) is waiting; the

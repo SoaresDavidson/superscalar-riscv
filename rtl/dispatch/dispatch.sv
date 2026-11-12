@@ -70,12 +70,11 @@ module dispatch
   // Entry builders 
   // ---------------------------------------------------------------------------
   function automatic rs_int_entry_t make_int_entry(
-      uop_t u, logic p0, logic [1:0] rdy,
+      uop_t u, logic [1:0] rdy,
       tag_t t1, tag_t t2, xlen_t d1, xlen_t d2, tag_t dst);
     rs_int_entry_t e;
     e             = '0;          // age, pred_taken, pred_target: open items 3, 5
     e.busy        = 1'b1;
-    e.port0_only  = p0;
     e.src1_ready  = rdy[0];      // rdy[0] = source 1, rdy[1] = source 2
     e.src1_tag    = t1;
     e.src1_data   = d1;
@@ -132,7 +131,6 @@ function automatic rob_entry_t make_rob_entry(
   logic [W-1:0] slot_v;     // slot has an instruction
   logic [W-1:0] to_int;     // slot goes to RS INT
   logic [W-1:0] to_mem;     // slot goes to RS MEM
-  logic [W-1:0] port0;      // slot is port0_only
 
   for (genvar k = 0; k < W; k++) begin : g_slot
     uop_t     u;
@@ -143,14 +141,13 @@ function automatic rob_entry_t make_rob_entry(
     assign slot_v[k] = dec_valid && u.valid;
     assign to_int[k] = slot_v[k] && (fu == FU_ALU || fu == FU_BRANCH);
     assign to_mem[k] = slot_v[k] && (fu == FU_AGU);
-    assign port0[k]  = slot_v[k] && (fu == FU_BRANCH);
 
     assign ren_rs1[k]       = u.rs1_valid? u.rs1 : '0;  
     assign ren_rs2[k]       = u.rs2_valid? u.rs2 : '0;   
     assign ren_rd[k]        = u.rd;                      
     assign ren_writes_rd[k] = slot_v[k] && u.has_dest;   
 
-    assign int_entry[k] = make_int_entry(u, port0[k], ren_src_ready[k],
+    assign int_entry[k] = make_int_entry(u, ren_src_ready[k],
                                          ren_src1_tag[k], ren_src2_tag[k],
                                          ren_src1_data[k], ren_src2_data[k],
                                          ren_dst_tag[k]);

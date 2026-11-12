@@ -29,8 +29,8 @@ As máscaras de dependência do Decode já estão no formato do `PRFRename`
 
 | `fu_of(op)` | Inclui | RS |
 |---|---|---|
-| `FU_ALU` | ALU, instruções `W`, `lui`, `auipc`, link do `jal` (`ALU_PC4`) | INT (porta 0 ou 1) |
-| `FU_BRANCH` | desvios condicionais, `jalr` | INT (só porta 0) |
+| `FU_ALU` | ALU, instruções `W`, `lui`, `auipc`, link do `jal` (`ALU_PC4`) | INT, para a ALU |
+| `FU_BRANCH` | desvios condicionais, `jalr` | INT, para a unidade de desvio |
 | `FU_AGU` | loads e stores | MEM |
 | `FU_NONE` | ilegais (`illegal = 1`) e instruções de sistema (`serializing = 1`) | nenhuma: entra no ROB, e o Retirement trata |
 
@@ -62,18 +62,19 @@ Uma fonte que a instrução não usa (`rs*_valid = 0`) entra com `ready = 1` e
 valor 0. A instrução está pronta para emissão quando
 `busy && src1_ready && src2_ready`.
 
-**RS INT** (portas 0 e 1)
+**RS INT** (alimenta a ALU e a unidade de desvio; a unidade de cada entrada é
+`fu_of(op)`, então não há escolha de porta)
 
 | Grupo | Campos |
 |---|---|
-| Controle | `busy`, `port0_only` (= `fu_of(op) == FU_BRANCH`) |
+| Controle | `busy` |
 | Fonte 1 e fonte 2 | `src*_ready`, `src*_tag`, `src*_data` |
 | Execução | `op`, `imm`, `use_imm`, `pc`, `dst_tag`, `wr_en`, `age`, `pred_taken`, `pred_target` |
 
 Na emissão, os campos de execução e `src1_data`/`src2_data` formam o
 `fu_req_t`.
 
-**RS MEM** (porta 2)
+**RS MEM** (alimenta a AGU)
 
 | Grupo | Campos |
 |---|---|
@@ -82,7 +83,7 @@ Na emissão, os campos de execução e `src1_data`/`src2_data` formam o
 | Fonte 2 (dado do store; load entra pronto) | `src2_ready`, `src2_tag`, `src2_data` |
 | Execução | `op` (`AGU_*`: tamanho, sinal e direção), `imm`, `dst_tag`, `wr_en`, `age` |
 
-Em relação à RS INT, saem `port0_only` (uma só porta), `use_imm` (o endereço
+Em relação à RS INT, saem `use_imm` (o endereço
 é sempre `rs1 + imm`), `pc` (guardado no ROB), `pred_taken` e `pred_target`.
 
 `src1_data` e `src2_data` dependem do item 4.

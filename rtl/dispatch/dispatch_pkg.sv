@@ -16,11 +16,12 @@ package dispatch_pkg;
   import execute_pkg::*;
 
   // -------------------------------------------------------------------------
-  // Reservation station INT (ports 0 and 1: ALU and Branch Unit)
+  // Reservation station INT, shared by the ALU and the Branch Unit (one FU of
+  // each kind, Execute wiki). The FU of an entry is fu_of(op); there is no
+  // port choice.
   // -------------------------------------------------------------------------
   typedef struct packed {
     logic     busy;          // entry holds an instruction
-    logic     port0_only;    // fu_of(op) == FU_BRANCH: only port 0 has the Branch Unit
     // source 1
     logic     src1_ready;    // src1_data is valid
     tag_t     src1_tag;      // tag being waited for while src1_ready = 0
