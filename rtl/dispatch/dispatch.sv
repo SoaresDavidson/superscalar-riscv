@@ -3,8 +3,7 @@
 // every valid slot.
 // Spec: docs/dispatch/Dispatch.md.
 //
-// STATUS: skeleton. Ports are final for this version; every output is tied to
-// zero, so dispatch_tb fails until the logic is written.
+// STATUS: in progress. ROB entries are still tied to zero.
 /* verilator lint_off UNUSEDSIGNAL */
 module dispatch
   import execute_pkg::*;
@@ -64,6 +63,51 @@ module dispatch
 );
 
   // ---------------------------------------------------------------------------
+  // Entry builders 
+  // ---------------------------------------------------------------------------
+  function automatic rs_int_entry_t make_int_entry(
+      uop_t u, logic p0, logic [1:0] rdy,
+      tag_t t1, tag_t t2, xlen_t d1, xlen_t d2, tag_t dst);
+    rs_int_entry_t e;
+    e             = '0;          // age, pred_taken, pred_target: open items 3, 5
+    e.busy        = 1'b1;
+    e.port0_only  = p0;
+    e.src1_ready  = rdy[0];      // rdy[0] = source 1, rdy[1] = source 2
+    e.src1_tag    = t1;
+    e.src1_data   = d1;
+    e.src2_ready  = rdy[1];
+    e.src2_tag    = t2;
+    e.src2_data   = d2;
+    e.op          = u.op;
+    e.imm         = u.imm;
+    e.use_imm     = u.use_imm;
+    e.pc          = u.pc;
+    e.dst_tag     = dst;
+    e.wr_en       = u.has_dest;
+    return e;
+  endfunction
+
+  function automatic rs_mem_entry_t make_mem_entry(
+      uop_t u, logic [1:0] rdy,
+      tag_t t1, tag_t t2, xlen_t d1, xlen_t d2, tag_t dst);
+    rs_mem_entry_t e;
+    e             = '0;
+    e.busy        = 1'b1;
+    e.src1_ready  = rdy[0];
+    e.src1_tag    = t1;
+    e.src1_data   = d1;
+    e.src2_ready  = rdy[1];
+    e.src2_tag    = t2;
+    e.src2_data   = d2;
+    e.op          = u.op;
+    e.imm         = u.imm;
+    e.dst_tag     = dst;
+    e.wr_en       = u.has_dest;
+    e.age         = '0;          // open item 3
+    return e;
+  endfunction
+
+  // ---------------------------------------------------------------------------
   // Per-slot classification (Dispatch.md, "Regras")
   // ---------------------------------------------------------------------------
   logic [W-1:0] slot_v;     // slot has an instruction
@@ -81,7 +125,26 @@ module dispatch
     assign to_int[k] = slot_v[k] && (fu == FU_ALU || fu == FU_BRANCH);
     assign to_mem[k] = slot_v[k] && (fu == FU_AGU);
     assign port0[k]  = slot_v[k] && (fu == FU_BRANCH);
+
+    assign ren_rs1[k]       = u.rs1_valid? u.rs1 : '0;  
+    assign ren_rs2[k]       = u.rs2_valid? u.rs2 : '0;   
+    assign ren_rd[k]        = u.rd;                      
+    assign ren_writes_rd[k] = slot_v[k] && u.has_dest;   
+
+    assign int_entry[k] = make_int_entry(u, port0[k], ren_src_ready[k],
+                                         ren_src1_tag[k], ren_src2_tag[k],
+                                         ren_src1_data[k], ren_src2_data[k],
+                                         ren_dst_tag[k]);
+
+    assign mem_entry[k] = make_mem_entry(u, ren_src_ready[k],
+                                         ren_src1_tag[k], ren_src2_tag[k],
+                                         ren_src1_data[k], ren_src2_data[k],
+                                         ren_dst_tag[k]);
+                                             
   end
+
+  assign ren_slot_valid     = slot_v;
+  assign ren_dispatch_valid = dec_valid && !flush;   
 
   // ---------------------------------------------------------------------------
   // Counts (Dispatch.md, "Condição de aceite")
@@ -116,16 +179,8 @@ module dispatch
   assign int_wr        = {W{accept}} & to_int;
   assign mem_wr        = {W{accept}} & to_mem;
 
-  // TODO (next steps): Rename requests, RS and ROB entries.
-  assign ren_dispatch_valid = 1'b0;
-  assign ren_slot_valid     = '0;
-  assign ren_rs1            = '0;
-  assign ren_rs2            = '0;
-  assign ren_rd             = '0;
-  assign ren_writes_rd      = '0;
+  // TODO (next step): ROB entries.
   assign rob_entry          = '0;
-  assign int_entry          = '0;
-  assign mem_entry          = '0;
 
 endmodule
 /* verilator lint_on UNUSEDSIGNAL */
