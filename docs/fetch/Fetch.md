@@ -96,25 +96,27 @@ Custo: 1 ciclo de bolha por `JAL`.
 
 Em `tb/unit/fetch_tb.sv`, com `WIDTH` de 1 a 4 (`PARAMS_fetch` no Makefile).
 Imprime `PASS` no fim e chama `$fatal` em qualquer verificação que falhe.
+Os nomes T1 a T11 são os usados nas mensagens de erro do testbench e nos
+commits.
 
-1. Durante o reset, `out_valid = 0`.
-2. Depois do reset, o bundle começa em `RESET_PC`, com os `WIDTH` slots válidos.
-3. Busca sequencial: `pc`, `pc + 4W`, `pc + 8W`.
-4. Stall: com `out_ready = 0` por vários ciclos, PC e bundle não mudam.
-5. Redirect do Decode: bundle anulado no ciclo; o seguinte começa no alvo.
-6. Redirect do back end durante um stall: o redirect vence.
-7. Dois redirects no mesmo ciclo: vence o back end.
-8. Alvo que não é múltiplo de `4W`: o bundle começa exatamente no alvo.
-9. PC acima de 4 GB (PC de 64 bits).
-10. Reset no meio da execução: volta a `RESET_PC`.
+- **T1:** Durante o reset, `out_valid = 0`.
+- **T2:** Depois do reset, o bundle começa em `RESET_PC`, com os `WIDTH` slots válidos.
+- **T3:** Busca sequencial: `pc`, `pc + 4W`, `pc + 8W`.
+- **T4:** Stall: com `out_ready = 0` por vários ciclos, PC e bundle não mudam.
+- **T5:** Redirect do Decode: bundle anulado no ciclo; o seguinte começa no alvo.
+- **T6:** Redirect do back end durante um stall: o redirect vence.
+- **T7:** Dois redirects no mesmo ciclo: vence o back end.
+- **T8:** Alvo que não é múltiplo de `4W`: o bundle começa exatamente no alvo.
+- **T9:** PC acima de 4 GB (PC de 64 bits).
+- **T10:** Reset no meio da execução: volta a `RESET_PC`.
 
 Em `tb/integration/fetch_decode_tb.sv` (Fetch + Decode real, com o redirect
 do `JAL` ligado):
 
-11. Programa com `jal` no slot 1 e no slot 0 de bundles diferentes e
-    back-pressure aleatória na saída do Decode: as instruções que saem do
-    Decode seguem exatamente a ordem do programa, e nenhuma do caminho errado
-    passa.
+- **T11:** Programa com `jal` no slot 1 e no slot 0 de bundles diferentes e
+  back-pressure aleatória na saída do Decode: as instruções que saem do
+  Decode seguem exatamente a ordem do programa, e nenhuma do caminho errado
+  passa.
 
 ## Versões
 
