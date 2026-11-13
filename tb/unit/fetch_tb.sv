@@ -58,6 +58,13 @@ module fetch_tb;
     end
   endtask
 
+  // In a cycle with a redirect the bundle on the output is on the wrong path.
+  task automatic expect_invalid(input string tc);
+    if (out_valid !== 1'b0)
+      $fatal(1, "%s: out_valid = %b, expected 0", tc, out_valid);
+    checks++;
+  endtask
+
   initial begin
     for (int i = 0; i < MEM_WORDS; i++) imem[i] = 32'h1000_0000 + 32'(i);
 
@@ -85,6 +92,32 @@ module fetch_tb;
     end
     out_ready = 1'b1;
     @(posedge clk); #1; expect_bundle("T4", 3 * BUNDLE);
+
+    // T5: Decode redirect (JAL). The bundle is dropped in the redirect cycle;
+    // the next one starts at the target.
+    dec_redirect_valid = 1'b1; dec_redirect_pc = 64'h80; #1;
+    expect_invalid("T5");
+    @(posedge clk); #1; dec_redirect_valid = 1'b0; #1;
+    expect_bundle("T5", 64'h80);
+
+    // T6: back-end redirect during a stall. The stalled bundle is on the
+    // wrong path, so the redirect wins; with out_ready still 0 the new bundle
+    // then holds like any other.
+    out_ready = 1'b0;
+    be_redirect_valid = 1'b1; be_redirect_pc = 64'h20; #1;
+    expect_invalid("T6");
+    @(posedge clk); #1; be_redirect_valid = 1'b0; #1;
+    expect_bundle("T6", 64'h20);
+    @(posedge clk); #1; expect_bundle("T6", 64'h20);
+    out_ready = 1'b1;
+
+    // T7: both redirects in the same cycle. The back end corrects an older
+    // instruction, so it wins over Decode.
+    be_redirect_valid  = 1'b1; be_redirect_pc  = 64'h100;
+    dec_redirect_valid = 1'b1; dec_redirect_pc = 64'h40; #1;
+    expect_invalid("T7");
+    @(posedge clk); #1; be_redirect_valid = 1'b0; dec_redirect_valid = 1'b0; #1;
+    expect_bundle("T7", 64'h100);
 
     $display("PASS fetch_tb (WIDTH = %0d, %0d checks)", WIDTH, checks);
     $finish;

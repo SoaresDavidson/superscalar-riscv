@@ -1,7 +1,9 @@
 // Fetch stage. Spec: docs/fetch/Fetch.md.
 //
-// Implemented so far: reset (T1, T2), sequential fetch (T3) and stall (T4).
-// Redirects come in the next commit, with their test cases.
+// Next-PC priority, highest first (spec, "Próximo PC"):
+//   reset > back-end redirect > Decode redirect (JAL) > stall > sequential.
+// In a cycle with any redirect, the bundle on the output was fetched from the
+// old PC and is on the wrong path, so out_valid is held low.
 module fetch
   import execute_pkg::*;
 #(
@@ -32,12 +34,18 @@ module fetch
 );
 
   xlen_t pc_q;
+  logic  any_redirect;
 
-  // Next PC: reset, then one bundle further each time Decode accepts.
-  // Without out_ready the register does not load: PC and bundle hold (T4).
+  assign any_redirect = be_redirect_valid || dec_redirect_valid;
+
+  // Without out_ready (and no redirect) the register does not load: PC and
+  // bundle hold (T4). A redirect wins over the stall (T6), and the back end
+  // wins over Decode (T7).
   always_ff @(posedge clk) begin
-    if (reset)          pc_q <= RESET_PC;
-    else if (out_ready) pc_q <= pc_q + XLEN'(4 * WIDTH);   // T3
+    if (reset)                   pc_q <= RESET_PC;
+    else if (be_redirect_valid)  pc_q <= be_redirect_pc;          // T6, T7
+    else if (dec_redirect_valid) pc_q <= dec_redirect_pc;         // T5
+    else if (out_ready)          pc_q <= pc_q + XLEN'(4 * WIDTH); // T3
   end
 
   for (genvar k = 0; k < WIDTH; k++) begin : g_slot
@@ -47,11 +55,6 @@ module fetch
   end
 
   assign out_slot_valid = '1;
-  assign out_valid      = !reset;   // T1
-
-  // Not used yet: redirects (T5 to T7).
-  logic unused;
-  assign unused = &{1'b0, dec_redirect_valid, dec_redirect_pc,
-                    be_redirect_valid, be_redirect_pc};
+  assign out_valid      = !reset && !any_redirect;   // T1, T5
 
 endmodule
