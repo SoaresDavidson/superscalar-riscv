@@ -119,6 +119,26 @@ module fetch_tb;
     @(posedge clk); #1; be_redirect_valid = 1'b0; dec_redirect_valid = 1'b0; #1;
     expect_bundle("T7", 64'h100);
 
+    // T8: target not a multiple of the bundle size (12 bytes with WIDTH = 3).
+    // The bundle starts exactly at the target, and fetch goes on from there.
+    dec_redirect_valid = 1'b1; dec_redirect_pc = 64'h34; #1;
+    @(posedge clk); #1; dec_redirect_valid = 1'b0; #1;
+    expect_bundle("T8", 64'h34);
+    @(posedge clk); #1; expect_bundle("T8", 64'h34 + BUNDLE);
+
+    // T9: PC above 4 GB. Only bit 32 differs from 0x40, so a PC truncated to
+    // 32 bits would show up as 0x40. The memory model indexes the low bits.
+    be_redirect_valid = 1'b1; be_redirect_pc = 64'h1_0000_0040; #1;
+    @(posedge clk); #1; be_redirect_valid = 1'b0; #1;
+    expect_bundle("T9", 64'h1_0000_0040);
+    @(posedge clk); #1; expect_bundle("T9", 64'h1_0000_0040 + BUNDLE);
+
+    // T10: reset in the middle of execution returns to RESET_PC.
+    reset = 1'b1; #1;
+    expect_invalid("T10");
+    @(posedge clk); #1; reset = 1'b0; #1;
+    expect_bundle("T10", '0);
+
     $display("PASS fetch_tb (WIDTH = %0d, %0d checks)", WIDTH, checks);
     $finish;
   end
