@@ -11,6 +11,7 @@ module PRFRenameBundle_tb;
     localparam int TAG_W = $clog2(ENTRIES);
     localparam int W = 3;
     localparam int WB_N = 2;
+    localparam int READ_N = 6;
     localparam int ROB_N = 16;
 
     logic clk = 0;
@@ -31,8 +32,11 @@ module PRFRenameBundle_tb;
     logic [W-1:0] commit_valid = '0;
     logic [W-1:0][4:0] commit_rd = '0;
     logic [W-1:0][TAG_W-1:0] commit_tag = '0, commit_old_tag = '0;
+    logic [READ_N-1:0][TAG_W-1:0] read_tag = '0;
+    logic [READ_N-1:0] read_valid;
+    logic [READ_N-1:0][XLEN-1:0] read_data;
 
-    PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES), .W(W), .WB_N(WB_N)) dut (.*);
+    PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES), .W(W), .WB_N(WB_N), .READ_N(READ_N)) dut (.*);
 
     // ---- Mock do Decode: escritor válido anterior mais próximo de cada registrador ----
     always_comb begin
@@ -270,9 +274,27 @@ module PRFRenameBundle_tb;
         step();
         peek(6, rdy, v, t);
         check(rdy && v == 66, "x6 value stored after writeback");
+        // ---- Portas de leitura tag -> valor, com bypass das duas portas de writeback ----
         writeback(0, b2, 77);
         writeback(1, TAG_W'(35), 100);
+        read_tag[0] = b1;          // escrito no ciclo anterior
+        read_tag[1] = b2;          // writeback na porta 0 neste ciclo
+        read_tag[2] = TAG_W'(35);  // writeback na porta 1 neste ciclo
+        read_tag[3] = TAG_W'(36);  // ainda sem valor: read_valid = 0
+        read_tag[4] = TAG_W'(1);   // arquitetural
+        read_tag[5] = b1;          // duas portas lendo a mesma tag
+        #1;
+        check(read_data[0] == 66 && read_data[5] == 66, "read ports return stored value");
+        check(read_data[1] == 77, "read port bypasses writeback port 0");
+        check(read_data[2] == 100, "read port bypasses writeback port 1");
+        check(read_valid == 6'b110111, "only the pending tag is not valid");
+        check(read_data[4] == 0, "read port of an architectural tag");
         step();
+        read_tag[3] = b2;
+        #1;
+        check(read_valid[3] && read_data[3] == 77 && read_valid[2] && read_data[2] == 100,
+              "bypassed values stored at the edge");
+        read_tag = '0;
         writeback(0, TAG_W'(36), 110);
         step();
 

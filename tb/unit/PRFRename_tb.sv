@@ -28,7 +28,11 @@ module PRFRename_tb;
     // Bundle de um slot: sempre válido, sem slot anterior do qual depender
     logic slot_valid = 1, rs1_dep = 0, rs2_dep = 0, rd_dep = 0;
 
-    PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES), .W(1), .WB_N(1)) dut (.*);
+    logic [5:0][TAG_W-1:0] read_tag = '0;  // portas de leitura: cobertas no PRFRenameBundle_tb
+    logic [5:0] read_valid;
+    logic [5:0][XLEN-1:0] read_data;
+
+    PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES), .W(1), .WB_N(1), .READ_N(6)) dut (.*);
 
     // ---- Mock do ROB ----
     logic [4:0] m_rd[0:ROB_N-1];

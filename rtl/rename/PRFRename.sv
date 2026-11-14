@@ -10,6 +10,7 @@ module PRFRename #(
     parameter  int ENTRIES    = 64,               // 32 arquiteturais + tags de renomeação
     parameter  int W          = 3,                // largura do bundle (dispatch e commit)
     parameter  int WB_N       = 1,                // portas de writeback
+    parameter  int READ_N     = 6,                // portas de leitura tag -> valor
     localparam int TAG_W      = $clog2(ENTRIES),
     localparam int CNT_SLOT_W = $clog2(W + 1)     // contagem vai de 0..W
 ) (
@@ -42,6 +43,11 @@ module PRFRename #(
     input logic [WB_N-1:0]            wb_valid,
     input logic [WB_N-1:0][TAG_W-1:0] wb_tag,
     input logic [WB_N-1:0][ XLEN-1:0] wb_data,
+
+    // leitura tag -> valor, com bypass do writeback
+    input  logic [READ_N-1:0][TAG_W-1:0] read_tag,
+    output logic [READ_N-1:0]            read_valid,
+    output logic [READ_N-1:0][ XLEN-1:0] read_data,
 
     // commit (só instruções com destino), slot 0 é o mais antigo
     input logic [W-1:0]            commit_valid,
@@ -151,7 +157,8 @@ module PRFRename #(
         .XLEN   (XLEN),
         .ENTRIES(ENTRIES),
         .W      (W),
-        .WB_N   (WB_N)
+        .WB_N   (WB_N),
+        .READ_N (READ_N)
     ) reg_file (
         .clk,
         .reset,
@@ -167,6 +174,9 @@ module PRFRename #(
         .wb_valid,
         .wb_tag,
         .wb_data,
+        .read_tag,
+        .read_valid,
+        .read_data,
         .commit_valid,
         .commit_tag,
         .commit_old_tag
@@ -326,6 +336,7 @@ module PRFRegFile #(
     parameter  int ENTRIES = 64,
     parameter  int W       = 3,
     parameter  int WB_N    = 1,
+    parameter  int READ_N  = 6,
     localparam int TAG_W   = $clog2(ENTRIES)
 ) (
     input  logic                       clk,
@@ -342,6 +353,9 @@ module PRFRegFile #(
     input  logic [WB_N-1:0]            wb_valid,
     input  logic [WB_N-1:0][TAG_W-1:0] wb_tag,
     input  logic [WB_N-1:0][ XLEN-1:0] wb_data,
+    input  logic [READ_N-1:0][TAG_W-1:0] read_tag,
+    output logic [READ_N-1:0]            read_valid,
+    output logic [READ_N-1:0][ XLEN-1:0] read_data,
     input  logic [   W-1:0]            commit_valid,
     input  logic [   W-1:0][TAG_W-1:0] commit_tag,
     input  logic [   W-1:0][TAG_W-1:0] commit_old_tag
@@ -375,6 +389,20 @@ module PRFRegFile #(
                     rs2_valid[k] = 1'b1;
                     rs2_data[k]  = wb_data[p];
                 end
+            end
+        end
+    end
+
+    // Portas de leitura: mesma regra das fontes do dispatch. read_valid em
+    // RB_VALID ou AR, ou com writeback no mesmo ciclo (bypass, exceto a tag 0).
+    always_comb begin
+        for (int r = 0; r < READ_N; r++) begin
+            read_valid[r] = has_value(state[read_tag[r]]);
+            read_data[r]  = regfile[read_tag[r]];
+            for (int p = 0; p < WB_N; p++)
+            if (wb_valid[p] && wb_tag[p] == read_tag[r] && read_tag[r] != '0) begin
+                read_valid[r] = 1'b1;
+                read_data[r]  = wb_data[p];
             end
         end
     end

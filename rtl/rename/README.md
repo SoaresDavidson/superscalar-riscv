@@ -57,6 +57,21 @@ Um writeback no mesmo ciclo do dispatch é repassado às fontes (bypass): se
 `src*_data=wb_data`. Sem o bypass, a instrução perderia o broadcast desse ciclo
 e esperaria a tag para sempre. A tag 0 (`x0`) não participa do bypass.
 
+### Leitura `tag -> valor`
+
+`PRFRename` tem `READ_N` portas de leitura (padrão 6), independentes do
+dispatch e sem handshake:
+
+| Sinal | Sentido | Significado |
+|---|---|---|
+| `read_tag[r]` | entrada | tag física a ler, `r = 0..READ_N-1` |
+| `read_valid[r]` | saída | a tag tem valor: estado `RB_VALID` ou `AR`, ou writeback no mesmo ciclo |
+| `read_data[r]` | saída | `value[read_tag[r]]`, combinacional; só tem significado com `read_valid[r]` |
+
+A regra é a mesma das fontes do dispatch. Um writeback no mesmo ciclo é
+repassado (bypass): se `wb_tag[p] == read_tag[r]`, `read_valid[r] = 1` e
+`read_data[r] = wb_data[p]`. A tag 0 não participa do bypass.
+
 ### Commit
 
 | Sinal | Sentido | Significado |
@@ -93,6 +108,9 @@ writebacks das instruções descartadas, pois uma tag pode ser reutilizada.
 
 - Como o valor retirado chega à verificação final (decisão 13): uma porta de
   leitura `commit_tag -> commit_data` no rename ou outro caminho. Não decidido.
+- Quem usa as portas de leitura e quantas são necessárias (Home da wiki:
+  "Quantas portas de leitura?"). O padrão `READ_N = 6` corresponde a duas
+  fontes por slot com `W = 3`.
 - O número de portas de writeback (`WB_N`) depende das unidades funcionais
   (página Execute da wiki). O padrão do módulo é `WB_N = 1`.
 - `RRF` e `ROBRename` ainda são de uma instrução por ciclo.
@@ -134,7 +152,7 @@ não tem `ROB_ENTRIES`: o ROB é o próprio banco de renomeação (`ENTRIES`).
 | `PRFFreeList` | fila circular das tags livres; até `W` pops e `W` pushes por ciclo; no flush, `head` volta a `tail` |
 | `PRFMapTable` | `x0..x31 -> tag` especulativo; fornece `src*_tag` e `old_tag` |
 | `PRFCommittedTable` | `x0..x31 -> tag` arquitetural; restaura a map table no flush |
-| `PRFRegFile` | `value[]` e `state[]` por tag (`FREE`, `RB_NOT_VALID`, `RB_VALID`, `AR`) |
+| `PRFRegFile` | `value[]` e `state[]` por tag (`FREE`, `RB_NOT_VALID`, `RB_VALID`, `AR`); portas de leitura `read_tag -> read_valid, read_data` |
 
 Para verificar (hoje só `PRFRename` está em `rtl/rename/`):
 
@@ -142,4 +160,5 @@ Para verificar (hoje só `PRFRename` está em `rtl/rename/`):
 make test T="PRFRename PRFRenameBundle"
 ```
 
-`PRFRename_tb` usa `W = 1`; `PRFRenameBundle_tb` usa `W = 3` e `WB_N = 2`.
+`PRFRename_tb` usa `W = 1`; `PRFRenameBundle_tb` usa `W = 3`, `WB_N = 2` e
+`READ_N = 6` e cobre as portas de leitura.
