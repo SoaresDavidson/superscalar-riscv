@@ -16,6 +16,9 @@ vpath %_tb.sv $(addprefix tb/,$(SUITES))
 
 T ?= $(TESTS)
 
+# Conjuntos de parâmetros do top do testbench (um -P por item).
+PARAMS_PipeFifo := DEPTH=1 DEPTH=2 DEPTH=3 DEPTH=4 DEPTH=8
+
 .PHONY: test test-unit test-integration lint clean $(TESTS)
 
 test: $(T)
