@@ -40,7 +40,7 @@ module dispatch_tb;
   logic [W-1:0]             ren_slot_valid;
   logic [W-1:0][REG_W-1:0]  ren_rs1, ren_rs2, ren_rd;
   logic [W-1:0]             ren_writes_rd;
-  logic                     ren_rob_ready;
+  logic                     ren_rob_ready, ren_rs_ready;
   logic                     ren_dispatch_ready;
   logic [W-1:0][1:0]        ren_src_ready;
   logic [W-1:0][XLEN-1:0]   ren_src1_data, ren_src2_data;
@@ -217,13 +217,15 @@ module dispatch_tb;
   // 3 ROB entries, 2 tags, 2 RS INT entries and 1 RS MEM entry. Each case
   // only changes the neighbours' answers and states three expectations:
   //   accept   : the bundle enters (seen as rob_alloc/int_wr/mem_wr)
-  //   dec_rdy  : dec_ready, "I have room" (space_ok && tags), to Decode
-  //   space_ok : ren_rob_ready, so that Rename only allocates when it fits
+  //   dec_rdy  : dec_ready, "I have room" (ROB, RS and tags), to Decode
+  //   rob_ok   : ren_rob_ready, the ROB has room (to Rename)
+  //   rs_ok    : ren_rs_ready, both RS have room (to Rename)
   // ---------------------------------------------------------------------------
   task automatic accept_case(string name,
                              int rob, logic tags, int ints, int mems,
                              logic valid, logic fl,
-                             logic exp_accept, logic exp_dec_rdy, logic exp_space_ok);
+                             logic exp_accept, logic exp_dec_rdy,
+                             logic exp_rob_ok, logic exp_rs_ok);
     cur = name;
     env_all_free();
     rob_free           = ROB_CNT_W'(rob);
@@ -237,7 +239,8 @@ module dispatch_tb;
     dec_uop[2] = i_lw(5'd6, 5'd5);
     #1;
     chk(dec_ready     === exp_dec_rdy,  "dec_ready (out_ready to Decode)");
-    chk(ren_rob_ready === exp_space_ok, "ren_rob_ready (space_ok to Rename)");
+    chk(ren_rob_ready === exp_rob_ok,   "ren_rob_ready (ROB has room)");
+    chk(ren_rs_ready  === exp_rs_ok,    "ren_rs_ready (both RS have room)");
     chk(rob_alloc === (exp_accept ? 3'b111 : 3'b000), "rob_alloc follows accept");
     chk(int_wr    === (exp_accept ? 3'b011 : 3'b000), "int_wr follows accept");
     chk(mem_wr    === (exp_accept ? 3'b100 : 3'b000), "mem_wr follows accept");
@@ -314,15 +317,15 @@ module dispatch_tb;
     chk(mem_wr    === 3'b001,       "ld (slot 0) goes to RS MEM");
 
     // A1..A8: acceptance. One line per row of the table in Dispatch.md.
-    //            name                    ROB tags INT MEM valid flush | accept dec_rdy space_ok
-    accept_case("A1 everything free",      8, 1,   8,  4,  1,    0,      1,     1,      1);
-    accept_case("A2 ROB short (2 < 3)",    2, 1,   8,  4,  1,    0,      0,     0,      0);
-    accept_case("A3 RS INT short (1 < 2)", 8, 1,   1,  4,  1,    0,      0,     0,      0);
-    accept_case("A4 RS MEM full",          8, 1,   8,  0,  1,    0,      0,     0,      0);
-    accept_case("A5 no tags",              8, 0,   8,  4,  1,    0,      0,     0,      1);
-    accept_case("A6 exact fit",            3, 1,   2,  1,  1,    0,      1,     1,      1);
-    accept_case("A7 Decode has nothing",   8, 1,   8,  4,  0,    0,      0,     1,      1);
-    accept_case("A8 flush",                8, 1,   8,  4,  1,    1,      0,     1,      1);
+    //            name                    ROB tags INT MEM valid flush | accept dec_rdy rob_ok rs_ok
+    accept_case("A1 everything free",      8, 1,   8,  4,  1,    0,      1,     1,      1,     1);
+    accept_case("A2 ROB short (2 < 3)",    2, 1,   8,  4,  1,    0,      0,     0,      0,     1);
+    accept_case("A3 RS INT short (1 < 2)", 8, 1,   1,  4,  1,    0,      0,     0,      1,     0);
+    accept_case("A4 RS MEM full",          8, 1,   8,  0,  1,    0,      0,     0,      1,     0);
+    accept_case("A5 no tags",              8, 0,   8,  4,  1,    0,      0,     0,      1,     1);
+    accept_case("A6 exact fit",            3, 1,   2,  1,  1,    0,      1,     1,      1,     1);
+    accept_case("A7 Decode has nothing",   8, 1,   8,  4,  0,    0,      0,     1,      1,     1);
+    accept_case("A8 flush",                8, 1,   8,  4,  1,    1,      0,     1,      1,     1);
 
 
     // C1: requests to Rename. A source that is x0 or unused goes as 0, even

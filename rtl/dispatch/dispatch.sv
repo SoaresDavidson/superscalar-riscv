@@ -38,7 +38,8 @@ module dispatch
     output logic [W-1:0][REG_W-1:0]  ren_rs2,          // 0 when rs2_valid = 0
     output logic [W-1:0][REG_W-1:0]  ren_rd,
     output logic [W-1:0]             ren_writes_rd,    // valid && has_dest
-    output logic                     ren_rob_ready,    // space_ok: ROB and both RS
+    output logic                     ren_rob_ready,    // the ROB has room for the bundle
+    output logic                     ren_rs_ready,     // both RS have room for the bundle
     // Rename: answers (same cycle)
     input  logic                     ren_dispatch_ready,
     input  logic [W-1:0][1:0]        ren_src_ready,
@@ -184,15 +185,19 @@ function automatic rob_entry_t make_rob_entry(
   // ---------------------------------------------------------------------------
   // Acceptance
   // ---------------------------------------------------------------------------
-  logic space_ok, accept;
+  logic rob_ok, rs_ok, space_ok, accept;
 
-  assign space_ok  = (rob_free >= ROB_CNT_W'(n_rob)) &&
-                     (int_free >= INT_CNT_W'(n_int)) &&
+  assign rob_ok    = (rob_free >= ROB_CNT_W'(n_rob));
+  assign rs_ok     = (int_free >= INT_CNT_W'(n_int)) &&
                      (mem_free >= MEM_CNT_W'(n_mem));
+  assign space_ok  = rob_ok && rs_ok;
   assign dec_ready = space_ok && ren_dispatch_ready;
   assign accept    = dec_valid && dec_ready && !flush;
 
-  assign ren_rob_ready = space_ok;
+  // Rename allocates tags only with rob_ready && rs_ready, so no tag leaks
+  // when the ROB or an RS refuses the bundle.
+  assign ren_rob_ready = rob_ok;
+  assign ren_rs_ready  = rs_ok;
   assign rob_alloc     = {W{accept}} & slot_v;
   assign int_wr        = {W{accept}} & to_int;
   assign mem_wr        = {W{accept}} & to_mem;

@@ -38,7 +38,7 @@ do `execute_pkg`, não são parâmetros.
 |---|---|---|
 | `dec_valid` | entrada | `out_valid` do Decode: há um bundle |
 | `dec_uop[W]` | entrada | um `uop_t` por slot |
-| `dec_ready` | saída | `out_ready` do Decode: `space_ok && ren_dispatch_ready` |
+| `dec_ready` | saída | `out_ready` do Decode: `rob_ok && rs_ok && ren_dispatch_ready` |
 
 As máscaras de dependência do Decode (`out_dep_rs1`, `out_dep_rs2`,
 `out_dep_rd`) **não** passam pelo dispatch: vão direto ao `PRFRename`.
@@ -52,15 +52,17 @@ As máscaras de dependência do Decode (`out_dep_rs1`, `out_dep_rs2`,
 | `ren_rs1[W]`, `ren_rs2[W]` | saída | `rs1`, `rs2` | registrador da fonte, ou 0 quando `rs*_valid = 0` |
 | `ren_rd[W]` | saída | `rd` | registrador de destino |
 | `ren_writes_rd[W]` | saída | `writes_rd` | `slot_valid && has_dest` |
-| `ren_rob_ready` | saída | `rob_ready` | `space_ok`: ROB e as duas RS cabem o bundle |
+| `ren_rob_ready` | saída | `rob_ready` | `rob_ok`: o ROB cabe o bundle |
+| `ren_rs_ready` | saída | `rs_ready` | `rs_ok`: as duas RS cabem o bundle |
 | `ren_dispatch_ready` | entrada | `dispatch_ready` | há tags para todos os `writes_rd` |
 | `ren_src_ready[W][2]` | entrada | `src_ready` | `[0]` fonte 1, `[1]` fonte 2 |
 | `ren_src1_tag`, `ren_src2_tag`, `ren_src1_data`, `ren_src2_data` | entrada | idem | resolução das fontes |
 | `ren_dst_tag[W]`, `ren_old_tag[W]` | entrada | idem | tag nova e tag anterior do destino |
 
-`ren_rob_ready` recebe `space_ok`, e não só o espaço do ROB: o Rename só aloca
-tags quando o bundle realmente entra, então nenhuma tag vaza quando uma RS
-está cheia.
+O Rename só aloca tags com `rob_ready && rs_ready`, ou seja, só quando o bundle
+realmente entra: nenhuma tag vaza quando o ROB ou uma RS está cheio. A porta
+`rs_ready` existe no `PRFRename` a partir do commit `b8cd458` do branch
+`davi#rename`.
 
 ### ROB
 
@@ -98,7 +100,9 @@ Roteamento por `fu_of(op)` (Execute: uma FU de cada tipo):
 Aceite:
 
 ```
-space_ok = rob_free >= n_rob && int_free >= n_int && mem_free >= n_mem
+rob_ok   = rob_free >= n_rob
+rs_ok    = int_free >= n_int && mem_free >= n_mem
+space_ok = rob_ok && rs_ok
 accept   = dec_valid && dec_ready && !flush
 ```
 

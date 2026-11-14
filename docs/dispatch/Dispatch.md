@@ -14,7 +14,7 @@ na estação de reserva (RS). Há duas RS: a INT (ALU e desvio) e a MEM
 | Vizinho | Entrega ao dispatch | Recebe do dispatch |
 |---|---|---|
 | Decode | `uop_t[W]`, máscaras `out_dep_rs1`, `out_dep_rs2`, `out_dep_rd` | `out_ready` |
-| Rename (`PRFRename`) | `dispatch_ready`, `dst_tag`, `old_tag`, tags, prontos e valores das fontes | `rs1`, `rs2`, `rd`, `writes_rd`, as três máscaras, `rob_ready` |
+| Rename (`PRFRename`) | `dispatch_ready`, `dst_tag`, `old_tag`, tags, prontos e valores das fontes | `rs1`, `rs2`, `rd`, `writes_rd`, as três máscaras, `rob_ready`, `rs_ready` |
 | ROB | entradas livres, índices | uma entrada por instrução |
 | RS INT e RS MEM | entradas livres | instrução a emitir |
 
@@ -45,16 +45,17 @@ contagens `n_rob`, `n_int` e `n_mem` são o número de bits em 1 de cada
 máscara.
 
 ```
-space_ok     = rob_free >= n_rob && int_free >= n_int && mem_free >= n_mem
-decode_ready = space_ok && rename.dispatch_ready
+rob_ok       = rob_free >= n_rob
+rs_ok        = int_free >= n_int && mem_free >= n_mem
+decode_ready = rob_ok && rs_ok && rename.dispatch_ready
 accept       = decode.out_valid && decode_ready && !flush
 ```
 
 - `decode_ready` vai para o `out_ready` do Decode; o bundle entra quando
   `accept = 1`.
 - A condição das tags é calculada pelo Rename (`dispatch_ready`).
-- `space_ok` é ligado ao `rob_ready` do Rename, para que ele só aloque tags
-  quando o bundle entra (ver item 1).
+- `rob_ok` vai para o `rob_ready` do Rename e `rs_ok` para o `rs_ready`: ele
+  só aloca tags quando os dois estão em 1, ou seja, quando o bundle entra.
 
 ## Entrada na RS
 
@@ -107,9 +108,9 @@ Em relação à RS INT, saem `use_imm` (o endereço
 
 **Interface com os vizinhos**
 
-1. **Espaço nas RS no aceite do Rename.** O `PRFRename` só recebe
-   `rob_ready`. Proposta: ligar ali o `space_ok` (ROB e RS). Confirmar com o
-   dono do Rename.
+1. ~~**Espaço nas RS no aceite do Rename.**~~ **Resolvido (13/11):** o
+   `PRFRename` ganhou a entrada `rs_ready` (commit `b8cd458`, branch
+   `davi#rename`), e o dispatch liga ali o `rs_ok`.
 2. **Interface do ROB.** O módulo ainda não existe. O dispatch precisa saber
    quantas entradas estão livres e quais índices o bundle recebe.
 3. **Identificação da instrução (`age`).** O `execute_pkg` usa `age_t` de 8
