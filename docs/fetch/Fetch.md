@@ -72,31 +72,6 @@ out_valid = !reset && !be_redirect_valid && !dec_redirect_valid
 No ciclo de um redirect, o bundle na saída foi buscado pelo PC antigo e está
 no caminho errado. Baixar `out_valid` impede que o Decode o aceite.
 
-### PC de cada slot (v2)
-
-O Fetch guarda um registrador de PC por slot, `pc_q[k]`, sempre com
-`pc_q[k] = pc_q[0] + 4k`. A tabela acima vale para o slot 0; o slot `k`
-recebe o mesmo valor mais `4k`, calculado **antes** do registrador:
-
-| Condição | Próximo `pc_q[k]` |
-|---|---|
-| `reset` | `RESET_PC + 4k` (constante) |
-| redirect | `redirect_pc + 4k` |
-| stall | não muda |
-| caso normal | `pc_q[k] + 4 × WIDTH` |
-
-`imem_addr[k]` e `out_pc[k]` saem direto de `pc_q[k]`, sem somador entre o
-flip-flop e a saída. Na v1, o somador `pc + 4k` ficava nesse caminho e
-estourava o setup no canto lento do LibreLane (−1,91 ns com 10 ns de período).
-Custo: `(WIDTH − 1) × XLEN` flip-flops a mais (128 com `WIDTH = 3`). A
-interface e o comportamento não mudam: os casos T1 a T11 valem sem alteração.
-
-Resultado medido (LibreLane, 10 ns, 14/11): o caminho até as saídas deixou de
-ser o pior, mas o pior setup passou de −1,91 ns para −2,64 ns, agora entre
-registradores, na cadeia de vai-um do somador de 64 bits (`pc_q + 4 × WIDTH`).
-A área foi de 19,5 mil para 34,4 mil µm² e os flip-flops de 64 para 188.
-Registrar os PCs sozinho não fecha o setup; o gargalo é o somador.
-
 ## Interação com o Decode no `JAL`
 
 O Decode levanta `redirect_valid` (um pulso de um ciclo) no ciclo **seguinte**
@@ -147,10 +122,8 @@ do `JAL` ligado):
 
 | Versão | Conteúdo | Depende de |
 |---|---|---|
-| v1 | Esta especificação, sem a seção "PC de cada slot" | — |
-| v2a | PC de cada slot em registrador próprio (seção "PC de cada slot") | — |
-| v2b | Fetch Buffer | item 2 |
-| v2c | Memória síncrona (1 ciclo de latência, como numa SRAM real). Proposta do Fetch, não é requisito do projeto | item 9 |
+| v1 | Esta especificação | — |
+| v2 | Fetch Buffer; memória síncrona (1 ciclo de latência, como numa SRAM real) | item 2 |
 | v3 | Pre-decode do opcode; predição estática (para trás = tomado) e depois contadores de 2 bits; BTB para `jalr` e alvos de branch; slots parciais depois de desvio previsto tomado; porta de atualização do preditor | item 1 e página Branch-Prediction |
 | v4 | RAS com a convenção `x1`/`x5` (decisão 7), restaurada no flush | v3 |
 
@@ -191,10 +164,6 @@ do `JAL` ligado):
    pode cair no meio de um bloco. A v1 usa uma porta de leitura por slot, cada
    uma com o próprio endereço, e não exige alinhamento. Numa memória real isso
    vira bancos intercalados, como no IBM RS/6000 (Shen & Lipasti, 4.3.1).
-9. **Memória de instruções.** Nada no projeto diz se ela responde no mesmo
-   ciclo (combinacional, como na v1) ou no seguinte (síncrona). Falta decidir
-   isso e quem fornece o modelo dela no testbench do processador inteiro.
-   Proposta: combinacional por enquanto.
 
 ## Referências
 

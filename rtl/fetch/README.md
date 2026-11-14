@@ -3,12 +3,10 @@
 Primeiro estágio do pipeline. A cada ciclo, lê da memória de instruções um
 bundle de `WIDTH` instruções consecutivas (PC, PC+4, PC+8 com `WIDTH = 3`),
 entrega ao Decode com o PC de cada uma e escolhe o PC do ciclo seguinte. O único
-estado são os registradores de PC, um por slot; todo o resto é combinacional.
+estado é o registrador do PC; todo o resto é combinacional.
 
-**Estado: v2a.** Busca sequencial, stall, redirect do Decode (`JAL`) e do back
+**Estado: v1.** Busca sequencial, stall, redirect do Decode (`JAL`) e do back
 end. Não prevê desvios: todo desvio condicional é buscado como não tomado.
-Desde a v2a, `imem_addr` e `out_pc` saem direto de flip-flops (um registrador
-de PC por slot), sem somador no caminho até a saída.
 
 Especificação: [`docs/fetch/Fetch.md`](../../docs/fetch/Fetch.md). Quando este
 arquivo e a especificação discordarem, vale a especificação e este arquivo está
@@ -109,9 +107,7 @@ Previsto na especificação, em "Versões" e "Pontos em aberto":
 
 - Predição de desvios (v3) e RAS (v4). Os campos `pred_taken` e `pred_target`
   que o `fu_req_t` espera ainda não têm caminho até a Branch Unit (ponto 1).
-- Fetch Buffer (v2b, ponto 2).
-- Memória síncrona com 1 ciclo de latência (v2c): proposta do Fetch, ainda sem
-  decisão do grupo sobre a memória de instruções (ponto 9).
+- Fetch Buffer e memória síncrona com 1 ciclo de latência (v2, ponto 2).
 - Bundles parciais (`out_slot_valid` com zeros à direita), necessários quando
   houver desvio previsto como tomado no meio do bundle (v3).
 
