@@ -6,47 +6,48 @@
 // slot são packed arrays, slot 0 é o mais antigo. Dependências dentro do bundle
 // vêm do Decode como one-hot rs1_dep/rs2_dep/rd_dep; o bundle entra tudo ou nada.
 module PRFRename #(
-    parameter  int XLEN    = 64,
-    parameter  int ENTRIES = 64,              // 32 arquiteturais + tags de renomeação
-    parameter  int W       = 3,               // largura do bundle (dispatch e commit)
-    parameter  int WB_N    = 1,               // portas de writeback
-    localparam int TAG_W   = $clog2(ENTRIES),
-    localparam int CNT_SLOT_W = $clog2(W + 1)  // contagem vai de 0..W
+    parameter  int XLEN       = 64,
+    parameter  int ENTRIES    = 64,               // 32 arquiteturais + tags de renomeação
+    parameter  int W          = 3,                // largura do bundle (dispatch e commit)
+    parameter  int WB_N       = 1,                // portas de writeback
+    localparam int TAG_W      = $clog2(ENTRIES),
+    localparam int CNT_SLOT_W = $clog2(W + 1)     // contagem vai de 0..W
 ) (
     input logic clk,
     input logic reset,
     input logic flush,
 
     // dispatch
-    input  logic                      dispatch_valid,
-    input  logic [W-1:0]              slot_valid,
-    input  logic [W-1:0][      4:0]   rs1,
-    input  logic [W-1:0][      4:0]   rs2,
-    input  logic [W-1:0][      4:0]   rd,
-    input  logic [W-1:0]              writes_rd,
-    input  logic [W-1:0][    W-1:0]   rs1_dep,
-    input  logic [W-1:0][    W-1:0]   rs2_dep,
-    input  logic [W-1:0][    W-1:0]   rd_dep,
-    input  logic                      rob_ready,
-    output logic                      dispatch_ready,
-    output logic [W-1:0][      1:0]   src_ready,
-    output logic [W-1:0][ XLEN-1:0]   src1_data,
-    output logic [W-1:0][ XLEN-1:0]   src2_data,
-    output logic [W-1:0][TAG_W-1:0]   src1_tag,
-    output logic [W-1:0][TAG_W-1:0]   src2_tag,
-    output logic [W-1:0][TAG_W-1:0]   dst_tag,
-    output logic [W-1:0][TAG_W-1:0]   old_tag,
+    input  logic                    dispatch_valid,
+    input  logic [W-1:0]            slot_valid,
+    input  logic [W-1:0][      4:0] rs1,
+    input  logic [W-1:0][      4:0] rs2,
+    input  logic [W-1:0][      4:0] rd,
+    input  logic [W-1:0]            writes_rd,
+    input  logic [W-1:0][    W-1:0] rs1_dep,
+    input  logic [W-1:0][    W-1:0] rs2_dep,
+    input  logic [W-1:0][    W-1:0] rd_dep,
+    input  logic                    rob_ready,
+    input  logic                    rs_ready,
+    output logic                    dispatch_ready,
+    output logic [W-1:0][      1:0] src_ready,
+    output logic [W-1:0][ XLEN-1:0] src1_data,
+    output logic [W-1:0][ XLEN-1:0] src2_data,
+    output logic [W-1:0][TAG_W-1:0] src1_tag,
+    output logic [W-1:0][TAG_W-1:0] src2_tag,
+    output logic [W-1:0][TAG_W-1:0] dst_tag,
+    output logic [W-1:0][TAG_W-1:0] old_tag,
 
     // writeback
-    input logic [WB_N-1:0]              wb_valid,
-    input logic [WB_N-1:0][TAG_W-1:0]   wb_tag,
-    input logic [WB_N-1:0][ XLEN-1:0]   wb_data,
+    input logic [WB_N-1:0]            wb_valid,
+    input logic [WB_N-1:0][TAG_W-1:0] wb_tag,
+    input logic [WB_N-1:0][ XLEN-1:0] wb_data,
 
     // commit (só instruções com destino), slot 0 é o mais antigo
-    input logic [W-1:0]              commit_valid,
-    input logic [W-1:0][      4:0]   commit_rd,
-    input logic [W-1:0][TAG_W-1:0]   commit_tag,
-    input logic [W-1:0][TAG_W-1:0]   commit_old_tag
+    input logic [W-1:0]            commit_valid,
+    input logic [W-1:0][      4:0] commit_rd,
+    input logic [W-1:0][TAG_W-1:0] commit_tag,
+    input logic [W-1:0][TAG_W-1:0] commit_old_tag
 );
     localparam int CNT_W = $clog2(ENTRIES - 32 + 1);
 
@@ -70,7 +71,7 @@ module PRFRename #(
     end
 
     assign dispatch_ready = CNT_W'(n_alloc) <= free_count;
-    assign alloc = (dispatch_valid && dispatch_ready && rob_ready) ? alloc_req : '0;
+    assign alloc = (dispatch_valid && dispatch_ready && rob_ready && rs_ready) ? alloc_req : '0;
 
     // Uma fonte ou old_tag com escritor anterior no bundle usa o dst_tag dele
     // (só os bits i < k dos one-hot de dependência podem estar ligados)
@@ -179,23 +180,23 @@ endmodule
 // especulativamente volta: as posições [tail, head) guardam essas tags em ordem
 // de alocação.
 module PRFFreeList #(
-    parameter  int ENTRIES = 64,
-    parameter  int W       = 3,
-    localparam int TAG_W   = $clog2(ENTRIES),
-    localparam int FREE_N  = ENTRIES - 32,
-    localparam int PTR_W   = FREE_N > 1 ? $clog2(FREE_N) : 1,  // índice na fila
-    localparam int CNT_W   = $clog2(FREE_N + 1),               // contagem vai de 0..FREE_N
+    parameter  int ENTRIES    = 64,
+    parameter  int W          = 3,
+    localparam int TAG_W      = $clog2(ENTRIES),
+    localparam int FREE_N     = ENTRIES - 32,
+    localparam int PTR_W      = FREE_N > 1 ? $clog2(FREE_N) : 1,  // índice na fila
+    localparam int CNT_W      = $clog2(FREE_N + 1),               // contagem vai de 0..FREE_N
     localparam int CNT_SLOT_W = $clog2(W + 1)
 ) (
-    input  logic                    clk,
-    input  logic                    reset,
-    input  logic                    flush,
-    input  logic [CNT_SLOT_W-1:0]    pop_n,
-    input  logic                    pop_en,
-    output logic [W-1:0][TAG_W-1:0] head_tags,      // próximas W tags, válidas até count
-    output logic [CNT_W-1:0]        count,
-    input  logic [W-1:0]            commit_valid,
-    input  logic [W-1:0][TAG_W-1:0] commit_old_tag
+    input  logic                             clk,
+    input  logic                             reset,
+    input  logic                             flush,
+    input  logic [CNT_SLOT_W-1:0]            pop_n,
+    input  logic                             pop_en,
+    output logic [         W-1:0][TAG_W-1:0] head_tags,      // próximas W tags, válidas até count
+    output logic [     CNT_W-1:0]            count,
+    input  logic [         W-1:0]            commit_valid,
+    input  logic [         W-1:0][TAG_W-1:0] commit_old_tag
 );
     logic [PTR_W-1:0] head, tail;
     logic [TAG_W-1:0] tags[FREE_N];
@@ -226,8 +227,7 @@ module PRFFreeList #(
             tail  <= 0;
             count <= CNT_W'(FREE_N);
         end else begin
-            for (int j = 0; j < W; j++)
-                if (commit_valid[j]) tags[push_ptr[j]] <= commit_old_tag[j];
+            for (int j = 0; j < W; j++) if (commit_valid[j]) tags[push_ptr[j]] <= commit_old_tag[j];
             tail <= wrap(tail, int'(n_push));
             if (flush) begin
                 head  <= wrap(tail, int'(n_push));
@@ -248,22 +248,22 @@ module PRFMapTable #(
     parameter  int W       = 3,
     localparam int TAG_W   = $clog2(ENTRIES)
 ) (
-    input  logic                        clk,
-    input  logic                        reset,
-    input  logic                        flush,
-    input  logic [  W-1:0][      4:0]   rs1,
-    input  logic [  W-1:0][      4:0]   rs2,
-    input  logic [  W-1:0][      4:0]   rd,
-    output logic [  W-1:0][TAG_W-1:0]   rs1_tag,
-    output logic [  W-1:0][TAG_W-1:0]   rs2_tag,
-    output logic [  W-1:0][TAG_W-1:0]   rd_old_tag,
-    input  logic [  W-1:0]              write_valid,
-    input  logic [  W-1:0][TAG_W-1:0]   write_tag,
-    input  logic [   31:0][TAG_W-1:0]   committed_map,
+    input  logic                    clk,
+    input  logic                    reset,
+    input  logic                    flush,
+    input  logic [W-1:0][      4:0] rs1,
+    input  logic [W-1:0][      4:0] rs2,
+    input  logic [W-1:0][      4:0] rd,
+    output logic [W-1:0][TAG_W-1:0] rs1_tag,
+    output logic [W-1:0][TAG_W-1:0] rs2_tag,
+    output logic [W-1:0][TAG_W-1:0] rd_old_tag,
+    input  logic [W-1:0]            write_valid,
+    input  logic [W-1:0][TAG_W-1:0] write_tag,
+    input  logic [ 31:0][TAG_W-1:0] committed_map,
     // Commits do ciclo de flush ainda não estão em committed_map
-    input  logic [  W-1:0]              commit_valid,
-    input  logic [  W-1:0][      4:0]   commit_rd,
-    input  logic [  W-1:0][TAG_W-1:0]   commit_tag
+    input  logic [W-1:0]            commit_valid,
+    input  logic [W-1:0][      4:0] commit_rd,
+    input  logic [W-1:0][TAG_W-1:0] commit_tag
 );
     logic [TAG_W-1:0] speculative_map[32];
 
@@ -285,11 +285,9 @@ module PRFMapTable #(
             for (int i = 0; i < 32; i++) begin
                 speculative_map[i] <= committed_map[i];
             end
-            for (int j = 0; j < W; j++)
-                if (commit_valid[j]) speculative_map[commit_rd[j]] <= commit_tag[j];
+            for (int j = 0; j < W; j++) if (commit_valid[j]) speculative_map[commit_rd[j]] <= commit_tag[j];
         end else begin
-            for (int k = 0; k < W; k++)
-                if (write_valid[k]) speculative_map[rd[k]] <= write_tag[k];
+            for (int k = 0; k < W; k++) if (write_valid[k]) speculative_map[rd[k]] <= write_tag[k];
         end
     end
 endmodule
@@ -301,12 +299,12 @@ module PRFCommittedTable #(
     parameter  int W       = 3,
     localparam int TAG_W   = $clog2(ENTRIES)
 ) (
-    input  logic                        clk,
-    input  logic                        reset,
-    input  logic [  W-1:0]              commit_valid,
-    input  logic [  W-1:0][      4:0]   commit_rd,
-    input  logic [  W-1:0][TAG_W-1:0]   commit_tag,
-    output logic [   31:0][TAG_W-1:0]   committed_map
+    input  logic                    clk,
+    input  logic                    reset,
+    input  logic [W-1:0]            commit_valid,
+    input  logic [W-1:0][      4:0] commit_rd,
+    input  logic [W-1:0][TAG_W-1:0] commit_tag,
+    output logic [ 31:0][TAG_W-1:0] committed_map
 );
 
     always_ff @(posedge clk) begin
@@ -315,8 +313,7 @@ module PRFCommittedTable #(
                 committed_map[i] <= TAG_W'(i);
             end
         end else begin
-            for (int j = 0; j < W; j++)
-                if (commit_valid[j]) committed_map[commit_rd[j]] <= commit_tag[j];
+            for (int j = 0; j < W; j++) if (commit_valid[j]) committed_map[commit_rd[j]] <= commit_tag[j];
         end
     end
 endmodule
@@ -331,23 +328,23 @@ module PRFRegFile #(
     parameter  int WB_N    = 1,
     localparam int TAG_W   = $clog2(ENTRIES)
 ) (
-    input  logic                         clk,
-    input  logic                         reset,
-    input  logic                         flush,
-    input  logic [   W-1:0][TAG_W-1:0]   rs1_tag,
-    input  logic [   W-1:0][TAG_W-1:0]   rs2_tag,
-    output logic [   W-1:0]              rs1_valid,
-    output logic [   W-1:0]              rs2_valid,
-    output logic [   W-1:0][ XLEN-1:0]   rs1_data,
-    output logic [   W-1:0][ XLEN-1:0]   rs2_data,
-    input  logic [   W-1:0]              alloc,
-    input  logic [   W-1:0][TAG_W-1:0]   alloc_tag,
-    input  logic [WB_N-1:0]              wb_valid,
-    input  logic [WB_N-1:0][TAG_W-1:0]   wb_tag,
-    input  logic [WB_N-1:0][ XLEN-1:0]   wb_data,
-    input  logic [   W-1:0]              commit_valid,
-    input  logic [   W-1:0][TAG_W-1:0]   commit_tag,
-    input  logic [   W-1:0][TAG_W-1:0]   commit_old_tag
+    input  logic                       clk,
+    input  logic                       reset,
+    input  logic                       flush,
+    input  logic [   W-1:0][TAG_W-1:0] rs1_tag,
+    input  logic [   W-1:0][TAG_W-1:0] rs2_tag,
+    output logic [   W-1:0]            rs1_valid,
+    output logic [   W-1:0]            rs2_valid,
+    output logic [   W-1:0][ XLEN-1:0] rs1_data,
+    output logic [   W-1:0][ XLEN-1:0] rs2_data,
+    input  logic [   W-1:0]            alloc,
+    input  logic [   W-1:0][TAG_W-1:0] alloc_tag,
+    input  logic [WB_N-1:0]            wb_valid,
+    input  logic [WB_N-1:0][TAG_W-1:0] wb_tag,
+    input  logic [WB_N-1:0][ XLEN-1:0] wb_data,
+    input  logic [   W-1:0]            commit_valid,
+    input  logic [   W-1:0][TAG_W-1:0] commit_tag,
+    input  logic [   W-1:0][TAG_W-1:0] commit_old_tag
 );
     typedef enum logic [1:0] {
         FREE,
@@ -360,8 +357,8 @@ module PRFRegFile #(
         return s == RB_VALID || s == AR;
     endfunction
 
-    logic [XLEN-1:0] regfile[ENTRIES];
-    state_t          state  [ENTRIES];
+    logic   [XLEN-1:0] regfile[ENTRIES];
+    state_t            state  [ENTRIES];
 
     always_comb begin
         for (int k = 0; k < W; k++) begin
@@ -398,23 +395,22 @@ module PRFRegFile #(
             end
             // Commits do ciclo de flush não são especulativos
             for (int j = 0; j < W; j++)
-                if (commit_valid[j]) begin
-                    state[commit_tag[j]]     <= AR;
-                    state[commit_old_tag[j]] <= FREE;
-                end
+            if (commit_valid[j]) begin
+                state[commit_tag[j]]     <= AR;
+                state[commit_old_tag[j]] <= FREE;
+            end
         end else begin
-            for (int k = 0; k < W; k++)
-                if (alloc[k]) state[alloc_tag[k]] <= RB_NOT_VALID;
+            for (int k = 0; k < W; k++) if (alloc[k]) state[alloc_tag[k]] <= RB_NOT_VALID;
             for (int p = 0; p < WB_N; p++)
-                if (wb_valid[p]) begin
-                    regfile[wb_tag[p]] <= wb_data[p];
-                    state[wb_tag[p]]   <= RB_VALID;
-                end
+            if (wb_valid[p]) begin
+                regfile[wb_tag[p]] <= wb_data[p];
+                state[wb_tag[p]]   <= RB_VALID;
+            end
             for (int j = 0; j < W; j++)
-                if (commit_valid[j]) begin
-                    state[commit_tag[j]]     <= AR;
-                    state[commit_old_tag[j]] <= FREE;
-                end
+            if (commit_valid[j]) begin
+                state[commit_tag[j]]     <= AR;
+                state[commit_old_tag[j]] <= FREE;
+            end
         end
     end
 endmodule

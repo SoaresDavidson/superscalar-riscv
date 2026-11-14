@@ -13,7 +13,7 @@ module PRFRename_tb;
 
     // Portas do DUT
     logic reset = 1, flush = 0;
-    logic dispatch_valid = 0, writes_rd = 0, rob_ready;
+    logic dispatch_valid = 0, writes_rd = 0, rob_ready, rs_ready;
     logic [4:0] rs1 = 0, rs2 = 0, rd = 0;
     logic dispatch_ready;
     logic [1:0] src_ready;
@@ -37,6 +37,9 @@ module PRFRename_tb;
     int m_head = 0, m_tail = 0, m_count = 0;
     logic rob_block = 0, do_retire = 0;
     assign rob_ready = !rob_block && m_count < ROB_N;
+    // Mock da Reservation Station: só a recusa importa para o rename
+    logic rs_block = 0;
+    assign rs_ready = !rs_block;
 
     logic [TAG_W-1:0] a, c, d, e, f, g, t, h, p, q, t1, t2, t3;
 
@@ -75,7 +78,7 @@ module PRFRename_tb;
     // aplica o clock no DUT, depois remove o head retirado e limpa os pulsos de um ciclo.
     task automatic step;
         logic xfer;
-        xfer = dispatch_valid && dispatch_ready && rob_ready;
+        xfer = dispatch_valid && dispatch_ready && rob_ready && rs_ready;
         if (flush) begin
             m_head = 0;
             m_tail = 0;
@@ -154,6 +157,13 @@ module PRFRename_tb;
         present(1, 6, 5, 0);
         check(dst_tag == t, "tag refused by the ROB must stay free");
         check(old_tag == TAG_W'(6), "x6 mapping unchanged after refused dispatch");
+        // RS recusa: mesma regra, a tag continua livre.
+        rs_block = 1;
+        step();
+        rs_block = 0;
+        present(1, 6, 5, 0);
+        check(dst_tag == t, "tag refused by the RS must stay free");
+        check(old_tag == TAG_W'(6), "x6 mapping unchanged after RS refusal");
         c = dst_tag;
         step();
 

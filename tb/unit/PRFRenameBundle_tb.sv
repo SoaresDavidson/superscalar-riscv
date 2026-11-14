@@ -18,7 +18,7 @@ module PRFRenameBundle_tb;
 
     // Portas do DUT
     logic reset = 1, flush = 0;
-    logic dispatch_valid = 0, rob_ready, dispatch_ready;
+    logic dispatch_valid = 0, rob_ready, rs_ready, dispatch_ready;
     logic [W-1:0] slot_valid = '0, writes_rd = '0;
     logic [W-1:0][4:0] rs1 = '0, rs2 = '0, rd = '0;
     logic [W-1:0][W-1:0] rs1_dep, rs2_dep, rd_dep;
@@ -56,6 +56,9 @@ module PRFRenameBundle_tb;
     int m_head = 0, m_tail = 0, m_count = 0, n_retire = 0;
     logic rob_block = 0;
     assign rob_ready = !rob_block && m_count + $countones(slot_valid) <= ROB_N;
+    // Mock da Reservation Station: só a recusa importa para o rename
+    logic rs_block = 0;
+    assign rs_ready = !rs_block;
 
     logic [TAG_W-1:0] b0, b1, b2, t;
     logic [TAG_W-1:0] got[0:4];
@@ -114,7 +117,7 @@ module PRFRenameBundle_tb;
     // aplica o clock no DUT, depois remove as entradas retiradas e limpa os pulsos.
     task automatic step;
         logic xfer;
-        xfer = dispatch_valid && dispatch_ready && rob_ready;
+        xfer = dispatch_valid && dispatch_ready && rob_ready && rs_ready;
         if (flush) begin
             m_head = 0;
             m_tail = 0;
@@ -232,6 +235,12 @@ module PRFRenameBundle_tb;
         check(dispatch_ready, "two writers fit in two free tags");
         step();
         rob_block = 0;
+        // A RS recusa o mesmo bundle: também nada é alocado.
+        rs_block = 1;
+        offer();
+        check(dispatch_ready, "rename alone accepts while the RS refuses");
+        step();
+        rs_block = 0;
         offer();
         check(dst_tag[0] == TAG_W'(35) && dst_tag[2] == TAG_W'(36),
               "refused bundles allocated nothing; slot 1 consumed no tag");

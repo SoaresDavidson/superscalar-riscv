@@ -25,15 +25,16 @@ comandos (alocar, promover, liberar, restaurar no flush). Em `ROBRename` o ROB
 | `dispatch_valid` | entrada | há uma instrução tentando entrar |
 | `rs1`, `rs2`, `rd`, `writes_rd` | entrada | registradores arquiteturais e se a instrução escreve `rd` |
 | `rob_ready` | entrada | o ROB tem entrada livre |
+| `rs_ready` | entrada | a Reservation Station tem entrada livre |
 | `dispatch_ready` | saída | há tag livre, ou a instrução não precisa de tag |
 | `src_ready`, `src1_data`, `src2_data`, `src1_tag`, `src2_tag` | saída | resolução das fontes |
 | `dst_tag` | saída | tag nova alocada para `rd` |
 | `old_tag` | saída | `map[rd]` de antes da alocação |
 
-A instrução entra quando `dispatch_valid && dispatch_ready && rob_ready`. Só
-aloca tag se `writes_rd && rd != 0`; escritas em `x0` não alocam nada. O
-`rob_ready` entra no rename para que nunca seja alocada uma tag que o ROB
-recusou.
+A instrução entra quando `dispatch_valid && dispatch_ready && rob_ready &&
+rs_ready`. Só aloca tag se `writes_rd && rd != 0`; escritas em `x0` não alocam
+nada. `rob_ready` e `rs_ready` entram no rename para que nunca seja alocada uma
+tag que o ROB ou a Reservation Station recusou.
 
 `rs1` e `rs2` são resolvidos **antes** da alocação de `rd`, permitindo ler o
 valor anterior quando uma instrução usa o mesmo registrador como fonte e
@@ -100,7 +101,7 @@ writebacks das instruções descartadas, pois uma tag pode ser reutilizada.
 
 As tabelas acima descrevem um slot. Em `PRFRename`, cada sinal por instrução é
 um packed array indexado pelo slot `k = 0..W-1` (slot 0 é o mais antigo); o
-handshake (`dispatch_valid`, `rob_ready`, `dispatch_ready`) é único para o
+handshake (`dispatch_valid`, `rob_ready`, `rs_ready`, `dispatch_ready`) é único para o
 bundle. A especificação completa está na wiki, em "Bundle de largura `W`".
 
 | Sinal | Sentido | Significado |
