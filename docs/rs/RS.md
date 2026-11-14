@@ -31,7 +31,7 @@ seção "Entrada na RS".
 | Vizinho | Entrega à RS | Recebe da RS |
 |---|---|---|
 | Dispatch | por slot: bit de escrita (`int_wr`, `mem_wr`) e a entrada montada | `int_free`, `mem_free` |
-| Barramentos de resultado (CDB) | `WB_N` = 3 portas: `cdb_valid`, `cdb_tag` | nada |
+| Barramentos de write-back | `WB_N` = 3 portas: `wb_valid`, `wb_tag` | nada |
 | Rename (`PRFRename`) | `read_valid`, `read_data` | `read_tag`: 6 portas, 2 por FU |
 | ALU, Branch Unit, AGU | `req_ready` | `req_valid` e `req` (`fu_req_t`) |
 | Controle | `flush` | nada |
@@ -39,7 +39,8 @@ seção "Entrada na RS".
 Os 3 barramentos são as portas de write-back do banco físico (página
 Execute): ALU, Branch Unit (link do `jalr`) e retorno do load, vindo do
 Memory. A AGU não escreve. Os mesmos sinais chegam às portas `wb_*` do
-`PRFRename`.
+`PRFRename`. No livro esse papel é do *common data bus* (CDB); aqui são
+vários barramentos, um por porta de escrita, e por isso o nome `wb_`.
 
 O handshake com cada FU é o do `alu.sv`: a transferência acontece na borda em
 que `req_valid` e `req_ready` estão em 1.
@@ -72,7 +73,7 @@ acontecem na borda do relógio.
 ### 2. Wakeup
 
 - A cada ciclo, toda fonte com `ready = 0` de toda entrada ocupada compara a
-  sua tag com as `WB_N` tags dos barramentos com `cdb_valid = 1`. Havendo
+  sua tag com as `WB_N` tags dos barramentos com `wb_valid = 1`. Havendo
   coincidência, a fonte passa a `ready = 1` na borda. Nenhum valor é copiado:
   ele já foi escrito no banco por esse mesmo write-back.
 - As duas fontes de uma entrada podem acordar no mesmo ciclo, por barramentos
@@ -121,13 +122,18 @@ acontecem na borda do relógio.
 ### 5. Reset e flush
 
 - Com `reset`, todas as entradas ficam com `busy = 0`.
-- Com `flush`, todas as entradas ficam com `busy = 0` na borda. Isso vale para
+- Com `flush`, todas as entradas ficam com `busy = 0` na borda, inclusive as
+  que o dispatch escreveria no mesmo ciclo. Nesse ciclo a RS não emite nada
+  (`req_valid = 0`), para que uma instrução do caminho errado não chegue à
+  FU. Isso vale para
   o flush no commit, o único que o `PRFRename` suporta hoje: o desvio mal
   previsto está no topo do ROB, então toda instrução ainda na RS é mais nova
   que ele e está no caminho errado. No mesmo ciclo, o dispatch não aceita
   nada (`accept = 0`). Com flush seletivo, a regra muda (item 6).
 
 ## Casos para o testbench
+
+Implementados em `tb/unit/rs_int_tb.sv` (R1 a R13) para a RS INT.
 
 1. Alocação com entradas livres espalhadas, inclusive quando a 2ª instrução do
    bundle para esta RS não está no slot 1.
