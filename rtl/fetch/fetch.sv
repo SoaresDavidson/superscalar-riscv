@@ -33,24 +33,30 @@ module fetch
   input  logic [XLEN-1:0]             be_redirect_pc
 );
 
-  xlen_t pc_q;
-  logic  any_redirect;
+  logic any_redirect;
 
   assign any_redirect = be_redirect_valid || dec_redirect_valid;
 
-  // Without out_ready (and no redirect) the register does not load: PC and
+  // One PC register per slot (spec, "PC de cada slot"), always holding
+  // pc_q[k] = pc_q[0] + 4k. The +4k is added before the flip-flop, so
+  // imem_addr and out_pc come straight from registers: no adder between the
+  // flip-flop and the outputs (v1's critical path in the slow corner).
+  //
+  // Without out_ready (and no redirect) the registers do not load: PC and
   // bundle hold (T4). A redirect wins over the stall (T6), and the back end
   // wins over Decode (T7).
-  always_ff @(posedge clk) begin
-    if (reset)                   pc_q <= RESET_PC;
-    else if (be_redirect_valid)  pc_q <= be_redirect_pc;          // T6, T7
-    else if (dec_redirect_valid) pc_q <= dec_redirect_pc;         // T5
-    else if (out_ready)          pc_q <= pc_q + XLEN'(4 * WIDTH); // T3
-  end
-
   for (genvar k = 0; k < WIDTH; k++) begin : g_slot
-    assign imem_addr[k] = pc_q + XLEN'(4 * k);
-    assign out_pc[k]    = pc_q + XLEN'(4 * k);
+    xlen_t pc_q;
+
+    always_ff @(posedge clk) begin
+      if (reset)                   pc_q <= RESET_PC + XLEN'(4 * k);
+      else if (be_redirect_valid)  pc_q <= be_redirect_pc  + XLEN'(4 * k); // T6, T7
+      else if (dec_redirect_valid) pc_q <= dec_redirect_pc + XLEN'(4 * k); // T5
+      else if (out_ready)          pc_q <= pc_q + XLEN'(4 * WIDTH);        // T3
+    end
+
+    assign imem_addr[k] = pc_q;
+    assign out_pc[k]    = pc_q;
     assign out_inst[k]  = imem_rdata[k];
   end
 
