@@ -33,8 +33,10 @@ $(TESTS): %: %_tb.sv $(RTL) | $(BUILD)
 	  echo "$$out" | grep -q PASS || { echo "$@ ($$p) FAIL"; exit 1; }; \
 	done
 
+# MULTITOP desligado: enquanto não há um módulo core que instancie os blocos,
+# cada bloco de rtl/ é um topo. Remover quando o core existir.
 lint:
-	verilator --lint-only -Wall $(RTL)
+	verilator --lint-only -Wall -Wno-MULTITOP $(RTL)
 
 $(BUILD):
 	mkdir -p $@
