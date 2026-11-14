@@ -4,7 +4,7 @@
 // Spec: docs/dispatch/Dispatch.md.
 //
 // STATUS: complete for this version. Pending (Dispatch.md, open items): age
-// (item 3), RS value capture (item 4), prediction fields (item 5).
+// (item 3), prediction fields (item 5). The RS hold tags only (item 4).
 // Unused on purpose: clk and reset (Dispatch is combinational; every block
 // takes them), rob_tail (waits for the age decision, open item 3), and the
 // uop fields each entry builder does not need.
@@ -43,8 +43,6 @@ module dispatch
     // Rename: answers (same cycle)
     input  logic                     ren_dispatch_ready,
     input  logic [W-1:0][1:0]        ren_src_ready,
-    input  logic [W-1:0][XLEN-1:0]   ren_src1_data,
-    input  logic [W-1:0][XLEN-1:0]   ren_src2_data,
     input  logic [W-1:0][TAG_W-1:0]  ren_src1_tag,
     input  logic [W-1:0][TAG_W-1:0]  ren_src2_tag,
     input  logic [W-1:0][TAG_W-1:0]  ren_dst_tag,
@@ -72,16 +70,14 @@ module dispatch
   // ---------------------------------------------------------------------------
   function automatic rs_int_entry_t make_int_entry(
       uop_t u, logic [1:0] rdy,
-      tag_t t1, tag_t t2, xlen_t d1, xlen_t d2, tag_t dst);
+      tag_t t1, tag_t t2, tag_t dst);
     rs_int_entry_t e;
     e             = '0;          // age, pred_taken, pred_target: open items 3, 5
     e.busy        = 1'b1;
     e.src1_ready  = rdy[0];      // rdy[0] = source 1, rdy[1] = source 2
     e.src1_tag    = t1;
-    e.src1_data   = d1;
     e.src2_ready  = rdy[1];
     e.src2_tag    = t2;
-    e.src2_data   = d2;
     e.op          = u.op;
     e.imm         = u.imm;
     e.use_imm     = u.use_imm;
@@ -93,16 +89,14 @@ module dispatch
 
   function automatic rs_mem_entry_t make_mem_entry(
       uop_t u, logic [1:0] rdy,
-      tag_t t1, tag_t t2, xlen_t d1, xlen_t d2, tag_t dst);
+      tag_t t1, tag_t t2, tag_t dst);
     rs_mem_entry_t e;
     e             = '0;
     e.busy        = 1'b1;
     e.src1_ready  = rdy[0];
     e.src1_tag    = t1;
-    e.src1_data   = d1;
     e.src2_ready  = rdy[1];
     e.src2_tag    = t2;
-    e.src2_data   = d2;
     e.op          = u.op;
     e.imm         = u.imm;
     e.dst_tag     = dst;
@@ -150,12 +144,10 @@ function automatic rob_entry_t make_rob_entry(
 
     assign int_entry[k] = make_int_entry(u, ren_src_ready[k],
                                          ren_src1_tag[k], ren_src2_tag[k],
-                                         ren_src1_data[k], ren_src2_data[k],
                                          ren_dst_tag[k]);
 
     assign mem_entry[k] = make_mem_entry(u, ren_src_ready[k],
                                          ren_src1_tag[k], ren_src2_tag[k],
-                                         ren_src1_data[k], ren_src2_data[k],
                                          ren_dst_tag[k]);
 
     assign rob_entry[k] = make_rob_entry(u, ren_dst_tag[k], ren_old_tag[k], fu);

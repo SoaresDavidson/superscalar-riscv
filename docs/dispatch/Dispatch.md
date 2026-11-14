@@ -14,7 +14,7 @@ na estação de reserva (RS). Há duas RS: a INT (ALU e desvio) e a MEM
 | Vizinho | Entrega ao dispatch | Recebe do dispatch |
 |---|---|---|
 | Decode | `uop_t[W]`, máscaras `out_dep_rs1`, `out_dep_rs2`, `out_dep_rd` | `out_ready` |
-| Rename (`PRFRename`) | `dispatch_ready`, `dst_tag`, `old_tag`, tags, prontos e valores das fontes | `rs1`, `rs2`, `rd`, `writes_rd`, as três máscaras, `rob_ready`, `rs_ready` |
+| Rename (`PRFRename`) | `dispatch_ready`, `dst_tag`, `old_tag`, tags e prontos das fontes | `rs1`, `rs2`, `rd`, `writes_rd`, as três máscaras, `rob_ready`, `rs_ready` |
 | ROB | entradas livres, índices | uma entrada por instrução |
 | RS INT e RS MEM | entradas livres | instrução a emitir |
 
@@ -69,10 +69,10 @@ valor 0. A instrução está pronta para emissão quando
 | Grupo | Campos |
 |---|---|
 | Controle | `busy` |
-| Fonte 1 e fonte 2 | `src*_ready`, `src*_tag`, `src*_data` |
+| Fonte 1 e fonte 2 | `src*_ready`, `src*_tag` |
 | Execução | `op`, `imm`, `use_imm`, `pc`, `dst_tag`, `wr_en`, `age`, `pred_taken`, `pred_target` |
 
-Na emissão, os campos de execução e `src1_data`/`src2_data` formam o
+Na emissão, os campos de execução e os valores lidos do banco pelas tags formam o
 `fu_req_t`.
 
 **RS MEM** (alimenta a AGU)
@@ -80,14 +80,15 @@ Na emissão, os campos de execução e `src1_data`/`src2_data` formam o
 | Grupo | Campos |
 |---|---|
 | Controle | `busy` |
-| Fonte 1 (base do endereço) | `src1_ready`, `src1_tag`, `src1_data` |
-| Fonte 2 (dado do store; load entra pronto) | `src2_ready`, `src2_tag`, `src2_data` |
+| Fonte 1 (base do endereço) | `src1_ready`, `src1_tag` |
+| Fonte 2 (dado do store; load entra pronto) | `src2_ready`, `src2_tag` |
 | Execução | `op` (`AGU_*`: tamanho, sinal e direção), `imm`, `dst_tag`, `wr_en`, `age` |
 
 Em relação à RS INT, saem `use_imm` (o endereço
 é sempre `rs1 + imm`), `pc` (guardado no ROB), `pred_taken` e `pred_target`.
 
-`src1_data` e `src2_data` dependem do item 4.
+As RS guardam só tags (item 4): os valores são lidos do banco físico depois
+da emissão (`docs/rs/RS.md`).
 
 ## Casos difíceis
 
@@ -119,8 +120,9 @@ Em relação à RS INT, saem `use_imm` (o endereço
 
 **Conteúdo da entrada na RS**
 
-4. **A RS guarda valores ou só tags?** O Rename hoje devolve `src1_data` e
-   `src2_data`. Define quais campos o dispatch escreve na RS.
+4. ~~**A RS guarda valores ou só tags?**~~ **Resolvido (14/11): só tags.**
+   Os valores são lidos depois da emissão, pelas portas `read_tag ->
+   read_data` do `PRFRename` (commit `a825634`, branch `davi#rename`).
 5. **Informação de predição.** A Branch Unit precisa de `pred_taken` e
    `pred_target`, mas o `uop_t` não tem esses campos.
 

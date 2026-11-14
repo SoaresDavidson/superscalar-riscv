@@ -43,7 +43,6 @@ module dispatch_tb;
   logic                     ren_rob_ready, ren_rs_ready;
   logic                     ren_dispatch_ready;
   logic [W-1:0][1:0]        ren_src_ready;
-  logic [W-1:0][XLEN-1:0]   ren_src1_data, ren_src2_data;
   logic [W-1:0][TAG_W-1:0]  ren_src1_tag, ren_src2_tag, ren_dst_tag, ren_old_tag;
 
   logic [ROB_CNT_W-1:0]     rob_free;
@@ -202,8 +201,6 @@ module dispatch_tb;
     mem_free           = MEM_CNT_W'(RS_MEM_ENTRIES);
     ren_dispatch_ready = 1'b1;
     ren_src_ready      = '1;
-    ren_src1_data      = '0;
-    ren_src2_data      = '0;
     for (int k = 0; k < W; k++) begin
       ren_src1_tag[k] = TAG_W'(10 + k);
       ren_src2_tag[k] = TAG_W'(20 + k);
@@ -350,8 +347,8 @@ module dispatch_tb;
     chk(ren_rd[2] === 5'd6,           "lw: rd = x6");
     chk(ren_writes_rd === 3'b110,     "writes_rd only for add and lw");
 
-    // C2: RS INT entry of the add in slot 1. Rename says src1 is ready
-    // (with a value) and src2 is still waiting for its tag.
+    // C2: RS INT entry of the add in slot 1. Rename says src1 is ready and
+    // src2 is still waiting for its tag. The RS holds tags only.
     cur = "C2 RS INT entry";
     env_all_free();
     dec_uop[0] = i_beq(5'd5, 5'd0);
@@ -360,13 +357,11 @@ module dispatch_tb;
     dec_uop[1] = u;
     dec_uop[2] = i_lw(5'd6, 5'd5);
     ren_src_ready[1] = 2'b01;                // [0] = src1 ready, [1] = src2 waiting
-    ren_src1_data[1] = 64'h1111;
     #1;
     ei = int_at(1);
     chk(ei.busy === 1'b1,             "add: busy");
     chk(ei.src1_ready === 1'b1,       "add: src1_ready from Rename");
     chk(ei.src1_tag === TAG_W'(11),   "add: src1_tag from Rename");
-    chk(ei.src1_data === 64'h1111,    "add: src1_data from Rename");
     chk(ei.src2_ready === 1'b0,       "add: src2 still waiting");
     chk(ei.src2_tag === TAG_W'(21),   "add: src2_tag = the tag it waits for");
     chk(ei.op === ALU_ADD,            "add: op copied from uop");

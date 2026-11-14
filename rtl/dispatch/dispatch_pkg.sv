@@ -7,9 +7,9 @@
 // (XLEN, TAG_W, AGE_W, exec_op_t...) comes from execute_pkg, never redefined
 // here (AGENTS.md, "Decode <-> Execute interface").
 //
-// PENDING (Dispatch.md, open item 4): src1_data / src2_data exist only while
-// the reservation stations capture operand values. If the group chooses
-// tag-only stations, both fields disappear from the two RS entries.
+// The reservation stations hold tags only (decided, Dispatch.md item 4):
+// operand values are read from the physical register file after issue,
+// through the PRFRename read_tag -> read_data ports.
 // PENDING (open item 5): pred_taken / pred_target have no source yet, because
 // uop_t carries no prediction.
 package dispatch_pkg;
@@ -23,13 +23,11 @@ package dispatch_pkg;
   typedef struct packed {
     logic     busy;          // entry holds an instruction
     // source 1
-    logic     src1_ready;    // src1_data is valid
-    tag_t     src1_tag;      // tag being waited for while src1_ready = 0
-    xlen_t    src1_data;
+    logic     src1_ready;    // the value of src1_tag is (or will be) in the PRF
+    tag_t     src1_tag;      // tag to wait for, then to read at issue
     // source 2
     logic     src2_ready;
     tag_t     src2_tag;
-    xlen_t    src2_data;
     // execution: copied into fu_req_t at issue
     exec_op_t op;
     xlen_t    imm;
@@ -50,11 +48,9 @@ package dispatch_pkg;
     // source 1: address base
     logic     src1_ready;
     tag_t     src1_tag;
-    xlen_t    src1_data;
     // source 2: store data (a load enters with src2_ready = 1)
     logic     src2_ready;
     tag_t     src2_tag;
-    xlen_t    src2_data;
     // execution
     exec_op_t op;            // AGU_*: access size, signedness and direction
     xlen_t    imm;           // address = src1 + imm

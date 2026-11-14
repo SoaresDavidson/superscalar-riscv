@@ -31,7 +31,8 @@ seção "Entrada na RS".
 | Vizinho | Entrega à RS | Recebe da RS |
 |---|---|---|
 | Dispatch | por slot: bit de escrita (`int_wr`, `mem_wr`) e a entrada montada | `int_free`, `mem_free` |
-| Barramentos de resultado (CDB) | `WB_N` = 3 portas: `cdb_valid`, `cdb_tag`, `cdb_data` | nada |
+| Barramentos de resultado (CDB) | `WB_N` = 3 portas: `cdb_valid`, `cdb_tag` | nada |
+| Rename (`PRFRename`) | `read_valid`, `read_data` | `read_tag`: 6 portas, 2 por FU |
 | ALU, Branch Unit, AGU | `req_ready` | `req_valid` e `req` (`fu_req_t`) |
 | Controle | `flush` | nada |
 
@@ -42,6 +43,12 @@ Memory. A AGU não escreve. Os mesmos sinais chegam às portas `wb_*` do
 
 O handshake com cada FU é o do `alu.sv`: a transferência acontece na borda em
 que `req_valid` e `req_ready` estão em 1.
+
+As RS guardam **só tags** (item 4 do `Dispatch.md`, decidido): nenhuma
+entrada guarda valores. Os valores são lidos do banco físico na emissão,
+pelas portas `read_tag -> read_valid, read_data` do `PRFRename` (commit
+`a825634`, branch `davi#rename`). Portas usadas: 0 e 1 pela ALU, 2 e 3 pela
+Branch Unit, 4 e 5 pela AGU.
 
 ## Funcionamento
 
@@ -66,7 +73,8 @@ acontecem na borda do relógio.
 
 - A cada ciclo, toda fonte com `ready = 0` de toda entrada ocupada compara a
   sua tag com as `WB_N` tags dos barramentos com `cdb_valid = 1`. Havendo
-  coincidência, a fonte copia `cdb_data` e passa a `ready = 1` na borda.
+  coincidência, a fonte passa a `ready = 1` na borda. Nenhum valor é copiado:
+  ele já foi escrito no banco por esse mesmo write-back.
 - As duas fontes de uma entrada podem acordar no mesmo ciclo, por barramentos
   diferentes.
 - **Entrada escrita no mesmo ciclo de um anúncio:** as fontes da entrada que
@@ -89,8 +97,16 @@ acontecem na borda do relógio.
   a ser a **mais antiga** (item 3).
 - O seletor só emite se a FU estiver livre (`req_ready = 1`). Na transferência,
   a entrada volta a `busy = 0`.
-- A emissão monta o `fu_req_t` a partir da entrada: `src1` e `src2` vêm de
-  `src1_data` e `src2_data`; os demais campos (`op`, `imm`, `use_imm`, `pc`,
+- **Leitura dos operandos:** no ciclo da emissão, as tags das fontes da
+  entrada escolhida vão para as `read_tag` da FU, e `src1` e `src2` do
+  `fu_req_t` vêm de `read_data`. A leitura é combinacional, então seleção,
+  leitura e montagem do `fu_req_t` cabem no mesmo ciclo, e a FU captura a
+  requisição na borda. Como a entrada só é emitida no ciclo seguinte ao
+  wakeup, o valor já está gravado no banco; `read_valid` deve sair sempre 1
+  (o testbench confere). Uma fonte que a instrução não usa tem tag 0 (`x0`),
+  que lê 0.
+- A emissão monta o `fu_req_t` a partir da entrada: `src1` e `src2` vêm da
+  leitura acima; os demais campos (`op`, `imm`, `use_imm`, `pc`,
   `dst_tag`, `wr_en`, `age`, `pred_taken`, `pred_target`) são copiados. Na RS
   MEM, os campos que a entrada não tem (`use_imm`, `pc`, `pred_*`) vão em zero;
   a AGU ignora `use_imm` (página Execute).
@@ -134,9 +150,11 @@ acontecem na borda do relógio.
 1. **`age` e seleção pela mais antiga** (item 3 do `Dispatch.md`). Sem o
    `age`, a seleção é pela posição na RS, e uma instrução antiga numa entrada
    de índice alto pode esperar mais do que devia.
-2. **RS com valores ou só tags** (item 4 do `Dispatch.md`). Com só tags, as
-   entradas perdem `src*_data`, a RS não copia valores do barramento, e a
-   leitura do banco passa para depois da emissão.
+2. ~~**RS com valores ou só tags**~~ **Resolvido (14/11): só tags.** A
+   leitura dos valores é feita na emissão, pelas portas de leitura do
+   `PRFRename`. Em aberto dentro disso: se a leitura passar a ser um estágio
+   próprio (registrado) para encurtar o ciclo, a FU recebe a requisição um
+   ciclo depois, e o wakeup precisa ser revisto.
 3. **Modelo de flush** (item 6 do `Dispatch.md`). Com flush seletivo, a RS
    recebe `flush_age` e zera só as entradas mais novas que ele (usando
    `age_is_younger`), o que depende do item 1.

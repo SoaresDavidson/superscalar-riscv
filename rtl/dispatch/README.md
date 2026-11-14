@@ -43,6 +43,10 @@ do `execute_pkg`, não são parâmetros.
 As máscaras de dependência do Decode (`out_dep_rs1`, `out_dep_rs2`,
 `out_dep_rd`) **não** passam pelo dispatch: vão direto ao `PRFRename`.
 
+As RS guardam só tags (item 4 decidido): o dispatch não usa os valores
+`src1_data`/`src2_data` do `PRFRename`. Os valores são lidos depois da
+emissão, pelas portas `read_tag -> read_data` (ver `docs/rs/RS.md`).
+
 ### Rename (`PRFRename`)
 
 | Porta | Dir. | Liga em | Significado |
@@ -56,7 +60,7 @@ As máscaras de dependência do Decode (`out_dep_rs1`, `out_dep_rs2`,
 | `ren_rs_ready` | saída | `rs_ready` | `rs_ok`: as duas RS cabem o bundle |
 | `ren_dispatch_ready` | entrada | `dispatch_ready` | há tags para todos os `writes_rd` |
 | `ren_src_ready[W][2]` | entrada | `src_ready` | `[0]` fonte 1, `[1]` fonte 2 |
-| `ren_src1_tag`, `ren_src2_tag`, `ren_src1_data`, `ren_src2_data` | entrada | idem | resolução das fontes |
+| `ren_src1_tag`, `ren_src2_tag` | entrada | idem | tags das fontes |
 | `ren_dst_tag[W]`, `ren_old_tag[W]` | entrada | idem | tag nova e tag anterior do destino |
 
 O Rename só aloca tags com `rob_ready && rs_ready`, ou seja, só quando o bundle
@@ -123,7 +127,6 @@ interface:
 
 - **`age`** (item 3) sai em zero nas entradas das RS; `rob_tail` fica sem uso
   até a decisão.
-- **`src*_data` nas RS** (item 4): somem se a equipe escolher RS só com tags.
 - **`pred_taken` / `pred_target`** (item 5) saem em zero: o `uop_t` não traz
   a predição.
 
