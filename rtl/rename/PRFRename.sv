@@ -204,7 +204,7 @@ module PRFFreeList #(
     logic [CNT_SLOT_W-1:0] n_push;
 
     function automatic logic [PTR_W-1:0] wrap(input logic [PTR_W-1:0] ptr, input int n);
-        return PTR_W'((int'(ptr) + n) % FREE_N);
+        wrap = PTR_W'((int'(ptr) + n) % FREE_N);
     endfunction
 
     always_comb begin
@@ -354,7 +354,7 @@ module PRFRegFile #(
     } state_t;
 
     function automatic logic has_value(input state_t s);
-        return s == RB_VALID || s == AR;
+        has_value = s == RB_VALID || s == AR;
     endfunction
 
     logic   [XLEN-1:0] regfile[ENTRIES];
