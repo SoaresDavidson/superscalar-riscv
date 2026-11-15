@@ -6,8 +6,9 @@
 // of the selected entry go to the PRF read ports and src1/src2 of fu_req_t
 // come from the read data, in the same cycle.
 //
-// STATUS: part 1 of 5 (state, reset, free count). Allocation, select/issue,
-// wakeup and flush still to come; their outputs are tied to zero.
+// STATUS: parts 1 and 2 of 5 (state, reset, free count, allocation).
+// Select/issue, wakeup and flush still to come; their outputs are tied to
+// zero.
 /* verilator lint_off UNUSEDSIGNAL */
 module rs_int
   import execute_pkg::*;
@@ -16,7 +17,8 @@ module rs_int
     parameter  int W       = 3,   // bundle width: writes per cycle
     parameter  int ENTRIES = 8,   // RS_INT_ENTRIES
     parameter  int WB_N    = 3,   // write-back buses: ALU, Branch Unit, load
-    localparam int CNT_W   = $clog2(ENTRIES + 1)
+    localparam int CNT_W   = $clog2(ENTRIES + 1),
+    localparam int SLOT_W  = (W > 1) ? $clog2(W) : 1   // index of a slot
 ) (
     input  logic clk,
     input  logic reset,
@@ -75,16 +77,61 @@ module rs_int
       if (!busy[i]) free = free + CNT_W'(1);
   end
 
-  // State. Reset empties every entry. The other cases (allocation, wakeup,
-  // issue, flush) are added in parts 2 to 5; until then an entry keeps its
-  // value.
-  always_ff @(posedge clk) begin
-    if (reset) begin
-      for (int i = 0; i < ENTRIES; i++) q[i] <= '0;
+  // ---------------------------------------------------------------------------
+  // Part 2: allocation
+  //
+  // The k-th slot with wr = 1 takes the k-th free entry, searching from
+  // entry 0 (RS.md, part 1). Slots are visited in order; each one takes the
+  // first entry that is free at the start of the cycle and not yet taken by
+  // an earlier slot. No `break` (Icarus ignores it): `found` stops a slot
+  // from taking a second entry.
+  // ---------------------------------------------------------------------------
+  logic [ENTRIES-1:0] alloc;                  // entry i is written this cycle
+  logic [SLOT_W-1:0]  alloc_slot [ENTRIES];   // ... with the entry of this slot
+
+  always_comb begin
+    logic [ENTRIES-1:0] taken;
+    logic               found;
+    taken = '0;
+    alloc = '0;
+    for (int i = 0; i < ENTRIES; i++) alloc_slot[i] = '0;
+
+    for (int k = 0; k < W; k++) begin
+      found = 1'b0;
+      if (wr[k])
+        for (int i = 0; i < ENTRIES; i++)
+          if (!busy[i] && !taken[i] && !found) begin
+            taken[i]      = 1'b1;
+            found         = 1'b1;
+            alloc[i]      = 1'b1;
+            alloc_slot[i] = SLOT_W'(k);
+          end
     end
   end
 
-  // TODO parts 2 to 5. See docs/rs/RS.md, section "Funcionamento".
+  // The entry that lands in each RS entry, picked from the bundle. Done with
+  // a genvar and a continuous assign, outside the always_ff.
+  rs_int_entry_t incoming [ENTRIES];
+
+  for (genvar i = 0; i < ENTRIES; i++) begin : g_incoming
+    assign incoming[i] = wr_entry[alloc_slot[i]];
+  end
+
+  // ---------------------------------------------------------------------------
+  // State. Reset empties every entry; an allocated entry takes the incoming
+  // one. Wakeup, issue and flush are added in parts 3 to 5; until then any
+  // other entry keeps its value.
+  // ---------------------------------------------------------------------------
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      for (int i = 0; i < ENTRIES; i++) q[i] <= '0;
+    end else begin
+      for (int i = 0; i < ENTRIES; i++)
+        if (alloc[i]) q[i] <= incoming[i];
+    end
+  end
+
+  // TODO parts 3 to 5. See docs/rs/RS.md, section "Funcionamento".
   assign alu_req_valid = 1'b0;
   assign alu_req       = '0;
   assign alu_read_tag  = '0;
