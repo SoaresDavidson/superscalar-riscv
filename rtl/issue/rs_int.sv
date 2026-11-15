@@ -6,8 +6,8 @@
 // of the selected entry go to the PRF read ports and src1/src2 of fu_req_t
 // come from the read data, in the same cycle.
 //
-// STATUS: skeleton. Ports are final for this version; every output is tied to
-// zero, so rs_int_tb fails until the logic is written.
+// STATUS: part 1 of 5 (state, reset, free count). Allocation, select/issue,
+// wakeup and flush still to come; their outputs are tied to zero.
 /* verilator lint_off UNUSEDSIGNAL */
 module rs_int
   import execute_pkg::*;
@@ -48,8 +48,43 @@ module rs_int
     input  logic [1:0][XLEN-1:0]       br_read_data
 );
 
-  // TODO: logic. See docs/rs/RS.md, section "Funcionamento".
-  assign free          = '0;
+  // ---------------------------------------------------------------------------
+  // Part 1: state, reset, free count
+  // ---------------------------------------------------------------------------
+
+  // The entries. Unpacked array: each q[i] is one rs_int_entry_t.
+  rs_int_entry_t q [ENTRIES];
+
+  // busy bit of every entry, as a plain vector. Icarus cannot read q[i].busy
+  // directly, so each entry is copied to a temporary first (one per entry,
+  // with a genvar) and the field is read from the copy.
+  logic [ENTRIES-1:0] busy;
+
+  for (genvar i = 0; i < ENTRIES; i++) begin : g_entry
+    rs_int_entry_t e;
+    assign e       = q[i];
+    assign busy[i] = e.busy;
+  end
+
+  // free = entries with busy = 0 at the START of the cycle (RS.md, part 4).
+  // It reads only the registered busy bits, never what this cycle will
+  // allocate or issue.
+  always_comb begin
+    free = '0;
+    for (int i = 0; i < ENTRIES; i++)
+      if (!busy[i]) free = free + CNT_W'(1);
+  end
+
+  // State. Reset empties every entry. The other cases (allocation, wakeup,
+  // issue, flush) are added in parts 2 to 5; until then an entry keeps its
+  // value.
+  always_ff @(posedge clk) begin
+    if (reset) begin
+      for (int i = 0; i < ENTRIES; i++) q[i] <= '0;
+    end
+  end
+
+  // TODO parts 2 to 5. See docs/rs/RS.md, section "Funcionamento".
   assign alu_req_valid = 1'b0;
   assign alu_req       = '0;
   assign alu_read_tag  = '0;
