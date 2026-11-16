@@ -6,8 +6,8 @@
 // of the selected entry go to the PRF read ports and src1/src2 of fu_req_t
 // come from the read data, in the same cycle.
 //
-// STATUS: parts 1 to 3 of 5 (state, reset, free count, allocation,
-// select/issue). Wakeup and flush still to come.
+// STATUS: parts 1 to 4 of 5 (state, reset, free count, allocation,
+// select/issue, wakeup). Flush still to come.
 /* verilator lint_off UNUSEDSIGNAL */
 module rs_int
   import execute_pkg::*;
@@ -185,24 +185,68 @@ module rs_int
   assign br_issue  = br_req_valid  && br_req_ready;
 
   // ---------------------------------------------------------------------------
-  // State. Reset empties every entry; an allocated entry takes the incoming
-  // one; an issued entry is freed. An entry being allocated was free, so it
-  // cannot be the one being issued. Wakeup and flush are added in parts 4
-  // and 5; until then any other entry keeps its value.
+  // Part 4: wakeup
+  //
+  // A waiting source becomes ready at the edge when a write-back bus carries
+  // its tag. No value is copied: the same write-back already wrote it into
+  // the PRF. wake() only sets ready bits, never clears them.
+  // ---------------------------------------------------------------------------
+
+  // Was tag t broadcast on any write-back bus this cycle?
+  function automatic logic woke(tag_t                       t,
+                                logic [WB_N-1:0]            v,
+                                logic [WB_N-1:0][TAG_W-1:0] tg);
+    logic r;
+    r = 1'b0;
+    for (int p = 0; p < WB_N; p++)
+      if (v[p] && tg[p] == t) r = 1'b1;
+    return r;
+  endfunction
+
+  // The entry with every source woken by this cycle's broadcasts.
+  function automatic rs_int_entry_t wake(rs_int_entry_t              e,
+                                         logic [WB_N-1:0]            v,
+                                         logic [WB_N-1:0][TAG_W-1:0] tg);
+    rs_int_entry_t o;
+    o = e;
+    if (woke(e.src1_tag, v, tg)) o.src1_ready = 1'b1;
+    if (woke(e.src2_tag, v, tg)) o.src2_ready = 1'b1;
+    return o;
+  endfunction
+
+  // Next value of each entry if it stays (woken_q) or arrives (woken_in).
+  // Computed with a genvar and continuous assigns, outside the always_ff.
+  rs_int_entry_t woken_q  [ENTRIES];
+  rs_int_entry_t woken_in [ENTRIES];
+
+  for (genvar i = 0; i < ENTRIES; i++) begin : g_wake
+    assign woken_q[i]  = wake(q[i],        wb_valid, wb_tag);
+    assign woken_in[i] = wake(incoming[i], wb_valid, wb_tag);
+  end
+
+  // ---------------------------------------------------------------------------
+  // State. Every cycle, each entry either:
+  //   - arrives: takes the incoming entry, already woken (a broadcast in the
+  //     cycle it is written must not be missed, RS.md part 2);
+  //   - is issued: freed;
+  //   - stays: keeps its content, plus any source woken this cycle.
+  // An entry being allocated was free, so it cannot be the one being issued.
+  // Flush is added in part 5.
   // ---------------------------------------------------------------------------
   always_ff @(posedge clk) begin
     if (reset) begin
       for (int i = 0; i < ENTRIES; i++) q[i] <= '0;
     end else begin
       for (int i = 0; i < ENTRIES; i++)
-        if (alloc[i]) q[i] <= incoming[i];
+        if (alloc[i]) q[i] <= woken_in[i];
         else if ((alu_issue && alu_idx == IDX_W'(i)) ||
                  (br_issue  && br_idx  == IDX_W'(i)))
           q[i] <= '0;
+        else q[i] <= woken_q[i];
     end
   end
 
-  // TODO parts 4 and 5. See docs/rs/RS.md, section "Funcionamento".
+  // TODO part 5. See docs/rs/RS.md, section "Funcionamento".
 
 endmodule
 /* verilator lint_on UNUSEDSIGNAL */
