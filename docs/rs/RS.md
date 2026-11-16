@@ -135,7 +135,9 @@ acontecem na borda do relógio.
 
 ## Casos para o testbench
 
-Implementados em `tb/unit/rs_int_tb.sv` (R1 a R13) para a RS INT.
+Implementados em `tb/unit/rs_int_tb.sv` (R1 a R13) para a RS INT e em
+`tb/unit/rs_mem_tb.sv` (M1 a M13) para a RS MEM. O `rs_mem_tb` cobre também
+os campos de load e de store (M2, M3) e o store que espera o dado (M6).
 
 1. Alocação com entradas livres espalhadas, inclusive quando a 2ª instrução do
    bundle para esta RS não está no slot 1.
