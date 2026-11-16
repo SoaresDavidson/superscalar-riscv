@@ -52,8 +52,9 @@ module fetch_decode_tb;
 
   always #5 clk = ~clk;
 
+  // Synchronous instruction memory: one cycle from address to instruction.
   for (genvar g = 0; g < WIDTH; g++) begin : g_imem
-    assign imem_rdata[g] = imem[imem_addr[g][9:2]];
+    always_ff @(posedge clk) imem_rdata[g] <= imem[imem_addr[g][9:2]];
   end
 
   // --- tiny assembler ------------------------------------------------------

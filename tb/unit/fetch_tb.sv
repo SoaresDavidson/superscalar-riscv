@@ -28,9 +28,10 @@ module fetch_tb;
 
   always #5 clk = ~clk;
 
-  // Combinational instruction memory, one read port per slot.
+  // Synchronous instruction memory, one read port per slot: the instruction
+  // arrives one cycle after its address (spec, "Memória de instruções").
   for (genvar g = 0; g < WIDTH; g++) begin : g_imem
-    assign imem_rdata[g] = imem[imem_addr[g][9:2]];
+    always_ff @(posedge clk) imem_rdata[g] <= imem[imem_addr[g][9:2]];
   end
 
   localparam logic [XLEN-1:0] BUNDLE = XLEN'(4 * WIDTH);  // bytes per bundle
@@ -76,16 +77,19 @@ module fetch_tb;
     if (out_valid !== 1'b0) $fatal(1, "T1: out_valid = %b during reset, expected 0", out_valid);
     checks++;
 
-    // T2: after reset, the bundle starts at RESET_PC with every slot valid.
+    // T2: after reset, one empty cycle while the memory reads RESET_PC; then
+    // the bundle starts at RESET_PC with every slot valid.
     reset = 1'b0; #1;
-    expect_bundle("T2", '0);
+    expect_invalid("T2");
+    @(posedge clk); #1; expect_bundle("T2", '0);
 
     // T3: sequential fetch, one bundle further per accepted cycle.
     @(posedge clk); #1; expect_bundle("T3", BUNDLE);
     @(posedge clk); #1; expect_bundle("T3", 2 * BUNDLE);
 
     // T4: stall. With out_ready = 0 the bundle already on the output
-    // (2 * BUNDLE) stays there; fetch resumes when out_ready returns.
+    // (2 * BUNDLE) stays there, instructions included, although the memory is
+    // already delivering the next bundle; fetch resumes without skipping it.
     out_ready = 1'b0;
     repeat (3) begin
       @(posedge clk); #1; expect_bundle("T4", 2 * BUNDLE);
@@ -93,21 +97,25 @@ module fetch_tb;
     out_ready = 1'b1;
     @(posedge clk); #1; expect_bundle("T4", 3 * BUNDLE);
 
-    // T5: Decode redirect (JAL). The bundle is dropped in the redirect cycle;
-    // the next one starts at the target.
+    // T5: Decode redirect (JAL). The bundle is dropped in the redirect cycle,
+    // the one in flight is dropped in the next; then the target arrives.
     dec_redirect_valid = 1'b1; dec_redirect_pc = 64'h80; #1;
     expect_invalid("T5");
     @(posedge clk); #1; dec_redirect_valid = 1'b0; #1;
-    expect_bundle("T5", 64'h80);
+    expect_invalid("T5");
+    @(posedge clk); #1; expect_bundle("T5", 64'h80);
 
-    // T6: back-end redirect during a stall. The stalled bundle is on the
-    // wrong path, so the redirect wins; with out_ready still 0 the new bundle
-    // then holds like any other.
+    // T6: back-end redirect during a stall. The stall runs one cycle first, so
+    // the stalled instructions are held; the redirect wins, and the held
+    // instructions must not show up in the target bundle. With out_ready
+    // still 0 the new bundle then holds like any other.
     out_ready = 1'b0;
+    @(posedge clk); #1; expect_bundle("T6", 64'h80);
     be_redirect_valid = 1'b1; be_redirect_pc = 64'h20; #1;
     expect_invalid("T6");
     @(posedge clk); #1; be_redirect_valid = 1'b0; #1;
-    expect_bundle("T6", 64'h20);
+    expect_invalid("T6");
+    @(posedge clk); #1; expect_bundle("T6", 64'h20);
     @(posedge clk); #1; expect_bundle("T6", 64'h20);
     out_ready = 1'b1;
 
@@ -117,27 +125,31 @@ module fetch_tb;
     dec_redirect_valid = 1'b1; dec_redirect_pc = 64'h40; #1;
     expect_invalid("T7");
     @(posedge clk); #1; be_redirect_valid = 1'b0; dec_redirect_valid = 1'b0; #1;
-    expect_bundle("T7", 64'h100);
+    expect_invalid("T7");
+    @(posedge clk); #1; expect_bundle("T7", 64'h100);
 
     // T8: target not a multiple of the bundle size (12 bytes with WIDTH = 3).
     // The bundle starts exactly at the target, and fetch goes on from there.
     dec_redirect_valid = 1'b1; dec_redirect_pc = 64'h34; #1;
     @(posedge clk); #1; dec_redirect_valid = 1'b0; #1;
-    expect_bundle("T8", 64'h34);
+    expect_invalid("T8");
+    @(posedge clk); #1; expect_bundle("T8", 64'h34);
     @(posedge clk); #1; expect_bundle("T8", 64'h34 + BUNDLE);
 
     // T9: PC above 4 GB. Only bit 32 differs from 0x40, so a PC truncated to
     // 32 bits would show up as 0x40. The memory model indexes the low bits.
     be_redirect_valid = 1'b1; be_redirect_pc = 64'h1_0000_0040; #1;
     @(posedge clk); #1; be_redirect_valid = 1'b0; #1;
-    expect_bundle("T9", 64'h1_0000_0040);
+    expect_invalid("T9");
+    @(posedge clk); #1; expect_bundle("T9", 64'h1_0000_0040);
     @(posedge clk); #1; expect_bundle("T9", 64'h1_0000_0040 + BUNDLE);
 
     // T10: reset in the middle of execution returns to RESET_PC.
     reset = 1'b1; #1;
     expect_invalid("T10");
     @(posedge clk); #1; reset = 1'b0; #1;
-    expect_bundle("T10", '0);
+    expect_invalid("T10");
+    @(posedge clk); #1; expect_bundle("T10", '0);
 
     $display("PASS fetch_tb (WIDTH = %0d, %0d checks)", WIDTH, checks);
     $finish;
