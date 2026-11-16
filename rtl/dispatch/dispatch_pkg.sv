@@ -7,7 +7,7 @@
 // (XLEN, TAG_W, AGE_W, exec_op_t...) comes from execute_pkg, never redefined
 // here (AGENTS.md, "Decode <-> Execute interface").
 //
-// The reservation stations hold tags only (decided, Dispatch.md item 4):
+// The reservation stations hold tags only (wiki decision 16):
 // operand values are read from the physical register file after issue,
 // through the PRFRename read_tag -> read_data ports.
 // PENDING (open item 5): pred_taken / pred_target have no source yet, because

@@ -4,7 +4,7 @@
 // Spec: docs/dispatch/Dispatch.md.
 //
 // STATUS: complete for this version. Pending (Dispatch.md, open items): age
-// (item 3), prediction fields (item 5). The RS hold tags only (item 4).
+// (item 3), prediction fields (item 5). The RS hold tags only (decision 16).
 // Unused on purpose: clk and reset (Dispatch is combinational; every block
 // takes them), rob_tail (waits for the age decision, open item 3), and the
 // uop fields each entry builder does not need.

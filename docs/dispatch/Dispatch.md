@@ -87,8 +87,8 @@ Na emissão, os campos de execução e os valores lidos do banco pelas tags form
 Em relação à RS INT, saem `use_imm` (o endereço
 é sempre `rs1 + imm`), `pc` (guardado no ROB), `pred_taken` e `pred_target`.
 
-As RS guardam só tags (item 4): os valores são lidos do banco físico depois
-da emissão (`docs/rs/RS.md`).
+As RS guardam só tags (decisão 16 da wiki): os valores são lidos do banco
+físico na emissão (`docs/rs/RS.md`).
 
 ## Casos difíceis
 
@@ -110,8 +110,8 @@ da emissão (`docs/rs/RS.md`).
 **Interface com os vizinhos**
 
 1. ~~**Espaço nas RS no aceite do Rename.**~~ **Resolvido (13/11):** o
-   `PRFRename` ganhou a entrada `rs_ready` (commit `b8cd458`, branch
-   `davi#rename`), e o dispatch liga ali o `rs_ok`.
+   `PRFRename` ganhou a entrada `rs_ready` (branch `davi#rename`), e o
+   dispatch liga ali o `rs_ok`.
 2. **Interface do ROB.** O módulo ainda não existe. O dispatch precisa saber
    quantas entradas estão livres e quais índices o bundle recebe.
 3. **Identificação da instrução (`age`).** O `execute_pkg` usa `age_t` de 8
@@ -120,9 +120,9 @@ da emissão (`docs/rs/RS.md`).
 
 **Conteúdo da entrada na RS**
 
-4. ~~**A RS guarda valores ou só tags?**~~ **Resolvido (14/11): só tags.**
-   Os valores são lidos depois da emissão, pelas portas `read_tag ->
-   read_data` do `PRFRename` (commit `a825634`, branch `davi#rename`).
+4. ~~**A RS guarda valores ou só tags?**~~ **Resolvido: só tags** (decisão
+   16 da wiki). Os valores são lidos na emissão, pelas portas `read_tag ->
+   read_data` do `PRFRename`.
 5. **Informação de predição.** A Branch Unit precisa de `pred_taken` e
    `pred_target`, mas o `uop_t` não tem esses campos.
 

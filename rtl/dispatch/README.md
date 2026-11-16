@@ -43,9 +43,10 @@ do `execute_pkg`, não são parâmetros.
 As máscaras de dependência do Decode (`out_dep_rs1`, `out_dep_rs2`,
 `out_dep_rd`) **não** passam pelo dispatch: vão direto ao `PRFRename`.
 
-As RS guardam só tags (item 4 decidido): o dispatch não usa os valores
-`src1_data`/`src2_data` do `PRFRename`. Os valores são lidos depois da
-emissão, pelas portas `read_tag -> read_data` (ver `docs/rs/RS.md`).
+As RS guardam só tags (decisão 16 da wiki): o dispatch recebe do
+`PRFRename` só tags e bits de pronto, e o `PRFRename` não tem mais saídas de
+valor para o dispatch. Os valores são lidos na emissão, pelas portas
+`read_tag -> read_data` (ver `docs/rs/RS.md`).
 
 ### Rename (`PRFRename`)
 
@@ -64,9 +65,8 @@ emissão, pelas portas `read_tag -> read_data` (ver `docs/rs/RS.md`).
 | `ren_dst_tag[W]`, `ren_old_tag[W]` | entrada | idem | tag nova e tag anterior do destino |
 
 O Rename só aloca tags com `rob_ready && rs_ready`, ou seja, só quando o bundle
-realmente entra: nenhuma tag vaza quando o ROB ou uma RS está cheio. A porta
-`rs_ready` existe no `PRFRename` a partir do commit `b8cd458` do branch
-`davi#rename`.
+realmente entra: nenhuma tag vaza quando o ROB ou uma RS está cheio. As portas
+`rob_ready` e `rs_ready` existem no `PRFRename` do branch `davi#rename`.
 
 ### ROB
 
@@ -132,7 +132,7 @@ interface:
 
 ## Teste
 
-`tb/unit/dispatch_tb.sv`, com `W = 3` (107 verificações):
+`tb/unit/dispatch_tb.sv`, com `W = 3` (114 verificações):
 
 - **T1 a T5, roteamento:** cada tipo de instrução em posições diferentes,
   `FU_NONE`, três instruções na mesma RS e slots inválidos com `op` de lixo.

@@ -11,8 +11,10 @@ Referência: Shen & Lipasti, seção 5.2.6 (dispatching, waiting e issuing).
 ## Organização
 
 O Execute tem **uma FU de cada tipo** (decisão da reunião, página Execute):
-uma ALU, uma Branch Unit e uma AGU. Há duas RS, no modelo de estações
-agrupadas (*clustered*) do livro:
+uma ALU, uma Branch Unit e uma AGU. A proposta são duas RS, no modelo de
+estações agrupadas (*clustered*) do livro. **Ainda não aprovada:** na wiki,
+a organização e o tamanho das RS seguem em aberto (Home, "Reservation
+Stations"; decisão 15). Ver [Pontos em aberto](#pontos-em-aberto), item 0.
 
 | RS | Entradas | Alimenta | Instruções (`fu_of(op)`) |
 |---|---|---|---|
@@ -45,11 +47,11 @@ vários barramentos, um por porta de escrita, e por isso o nome `wb_`.
 O handshake com cada FU é o do `alu.sv`: a transferência acontece na borda em
 que `req_valid` e `req_ready` estão em 1.
 
-As RS guardam **só tags** (item 4 do `Dispatch.md`, decidido): nenhuma
-entrada guarda valores. Os valores são lidos do banco físico na emissão,
-pelas portas `read_tag -> read_valid, read_data` do `PRFRename` (commit
-`a825634`, branch `davi#rename`). Portas usadas: 0 e 1 pela ALU, 2 e 3 pela
-Branch Unit, 4 e 5 pela AGU.
+As RS guardam **só tags** (decisão 16 da wiki): nenhuma entrada guarda
+valores. Os valores são lidos do banco físico na emissão, pelas portas
+`read_tag -> read_valid, read_data` do `PRFRename` (branch `davi#rename`).
+Portas usadas: 0 e 1 pela ALU, 2 e 3 pela Branch Unit, 4 e 5 pela AGU
+(`READ_N` = 6).
 
 ## Funcionamento
 
@@ -153,12 +155,19 @@ Implementados em `tb/unit/rs_int_tb.sv` (R1 a R13) para a RS INT.
 
 ## Pontos em aberto
 
+0. **Organização e tamanho das RS.** Proposta: RS INT (8 entradas, ALU e
+   Branch Unit) e RS MEM (4 entradas, AGU), clustered; `rs_ready` do Rename
+   = as duas cabem o bundle (`int_free >= n_int && mem_free >= n_mem`). Na
+   wiki isso segue em aberto (Home e decisão 15): precisa de aprovação do
+   grupo e de um registro em `Decisoes-de-Projeto`. O `rs_int` não depende
+   do tamanho (parâmetro `ENTRIES`).
 1. **`age` e seleção pela mais antiga** (item 3 do `Dispatch.md`). Sem o
    `age`, a seleção é pela posição na RS, e uma instrução antiga numa entrada
    de índice alto pode esperar mais do que devia.
-2. ~~**RS com valores ou só tags**~~ **Resolvido (14/11): só tags.** A
-   leitura dos valores é feita na emissão, pelas portas de leitura do
-   `PRFRename`. Em aberto dentro disso: se a leitura passar a ser um estágio
+2. ~~**RS com valores ou só tags**~~ **Resolvido: só tags** (decisão 16 da
+   wiki). A decisão 16 deixa em aberto `READ_N` e o ciclo da leitura; a
+   proposta desta RS é `READ_N` = 6 (2 por FU), lidas no mesmo ciclo da
+   emissão. Em aberto dentro disso: se a leitura passar a ser um estágio
    próprio (registrado) para encurtar o ciclo, a FU recebe a requisição um
    ciclo depois, e o wakeup precisa ser revisto.
 3. **Modelo de flush** (item 6 do `Dispatch.md`). Com flush seletivo, a RS
