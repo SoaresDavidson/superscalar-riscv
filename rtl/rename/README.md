@@ -27,7 +27,7 @@ comandos (alocar, promover, liberar, restaurar no flush). Em `ROBRename` o ROB
 | `rob_ready` | entrada | o ROB tem entrada livre |
 | `rs_ready` | entrada | a Reservation Station tem entrada livre |
 | `dispatch_ready` | saída | há tag livre, ou a instrução não precisa de tag |
-| `src_ready`, `src1_data`, `src2_data`, `src1_tag`, `src2_tag` | saída | resolução das fontes |
+| `src_ready`, `src1_tag`, `src2_tag` | saída | resolução das fontes: só tag e pronto, sem valor (o valor sai pelas portas `read_tag`) |
 | `dst_tag` | saída | tag nova alocada para `rd` |
 | `old_tag` | saída | `map[rd]` de antes da alocação |
 
@@ -53,9 +53,11 @@ a tag, pois este módulo não contém a lógica de wakeup. O ROB observa o mesmo
 writeback para marcar a própria entrada como terminada.
 
 Um writeback no mesmo ciclo do dispatch é repassado às fontes (bypass): se
-`wb_tag` for a tag de uma fonte, ela sai com `src_ready=1` e
-`src*_data=wb_data`. Sem o bypass, a instrução perderia o broadcast desse ciclo
-e esperaria a tag para sempre. A tag 0 (`x0`) não participa do bypass.
+`wb_tag` for a tag de uma fonte, ela sai com `src_ready=1`. Sem o bypass, a
+instrução perderia o broadcast desse ciclo e esperaria a tag para sempre. O
+valor não sai no dispatch: quem precisa dele lê `value[src*_tag]` pelas portas
+`read_tag` (o writeback do mesmo ciclo é repassado a elas). A tag 0 (`x0`) não
+participa do bypass.
 
 ### Leitura `tag -> valor`
 
@@ -68,7 +70,7 @@ dispatch e sem handshake:
 | `read_valid[r]` | saída | a tag tem valor: estado `RB_VALID` ou `AR`, ou writeback no mesmo ciclo |
 | `read_data[r]` | saída | `value[read_tag[r]]`, combinacional; só tem significado com `read_valid[r]` |
 
-A regra é a mesma das fontes do dispatch. Um writeback no mesmo ciclo é
+A regra de validade é a mesma das fontes do dispatch. Um writeback no mesmo ciclo é
 repassado (bypass): se `wb_tag[p] == read_tag[r]`, `read_valid[r] = 1` e
 `read_data[r] = wb_data[p]`. A tag 0 não participa do bypass.
 
@@ -108,9 +110,9 @@ writebacks das instruções descartadas, pois uma tag pode ser reutilizada.
 
 - Como o valor retirado chega à verificação final (decisão 13): uma porta de
   leitura `commit_tag -> commit_data` no rename ou outro caminho. Não decidido.
-- Quem usa as portas de leitura e quantas são necessárias (Home da wiki:
-  "Quantas portas de leitura?"). O padrão `READ_N = 6` corresponde a duas
-  fontes por slot com `W = 3`.
+- Quantas portas de leitura são necessárias (Home da wiki: "Quantas portas de
+  leitura?"). O padrão `READ_N = 6` corresponde a duas fontes por slot com
+  `W = 3`. O dispatch não lê valores; quem consome as portas é o issue.
 - O número de portas de writeback (`WB_N`) depende das unidades funcionais
   (página Execute da wiki). O padrão do módulo é `WB_N = 1`.
 - `RRF` e `ROBRename` ainda são de uma instrução por ciclo.

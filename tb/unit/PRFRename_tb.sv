@@ -17,7 +17,6 @@ module PRFRename_tb;
     logic [4:0] rs1 = 0, rs2 = 0, rd = 0;
     logic dispatch_ready;
     logic [1:0] src_ready;
-    logic [XLEN-1:0] src1_data, src2_data;
     logic [TAG_W-1:0] src1_tag, src2_tag, dst_tag, old_tag;
     logic wb_valid = 0;
     logic [TAG_W-1:0] wb_tag = 0;
@@ -28,9 +27,18 @@ module PRFRename_tb;
     // Bundle de um slot: sempre válido, sem slot anterior do qual depender
     logic slot_valid = 1, rs1_dep = 0, rs2_dep = 0, rd_dep = 0;
 
-    logic [5:0][TAG_W-1:0] read_tag = '0;  // portas de leitura: cobertas no PRFRenameBundle_tb
+    // O dispatch só devolve tags: o valor das fontes é lido pelas portas 0 e 1 (src1_data/src2_data)
+    logic [5:0][TAG_W-1:0] read_tag;
     logic [5:0] read_valid;
     logic [5:0][XLEN-1:0] read_data;
+    logic [XLEN-1:0] src1_data, src2_data;
+    always_comb begin
+        read_tag = '0;
+        read_tag[0] = src1_tag;
+        read_tag[1] = src2_tag;
+    end
+    assign src1_data = read_data[0];
+    assign src2_data = read_data[1];
 
     PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES), .W(1), .WB_N(1), .READ_N(6)) dut (.*);
 

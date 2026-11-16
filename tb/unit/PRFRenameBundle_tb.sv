@@ -24,7 +24,6 @@ module PRFRenameBundle_tb;
     logic [W-1:0][4:0] rs1 = '0, rs2 = '0, rd = '0;
     logic [W-1:0][W-1:0] rs1_dep, rs2_dep, rd_dep;
     logic [W-1:0][1:0] src_ready;
-    logic [W-1:0][XLEN-1:0] src1_data, src2_data;
     logic [W-1:0][TAG_W-1:0] src1_tag, src2_tag, dst_tag, old_tag;
     logic [WB_N-1:0] wb_valid = '0;
     logic [WB_N-1:0][TAG_W-1:0] wb_tag = '0;
@@ -155,6 +154,15 @@ module PRFRenameBundle_tb;
         #1;
     endtask
 
+    // Valor da fonte s (0 = rs1, 1 = rs2) do slot k, lido pela porta 0 com read_tag = src*_tag.
+    // O dispatch não devolve valores. Só vale com src_ready; solta a porta ao terminar.
+    task automatic read_src(input int k, input int s, output logic [XLEN-1:0] data);
+        read_tag[0] = s == 0 ? src1_tag[k] : src2_tag[k];
+        #1;
+        data = read_data[0];
+        read_tag[0] = '0;
+    endtask
+
     // Lê x[r] pelo slot 0 sem fazer dispatch; retorna ready e valor.
     task automatic peek(input logic [4:0] r, output logic ready, output logic [XLEN-1:0] data,
                         output logic [TAG_W-1:0] tag);
@@ -162,7 +170,7 @@ module PRFRenameBundle_tb;
         put(0, 0, 0, r, 0);
         offer();
         ready = src_ready[0][0];
-        data = src1_data[0];
+        read_src(0, 0, data);
         tag = src1_tag[0];
         dispatch_valid = 0;
         clear();
@@ -170,6 +178,7 @@ module PRFRenameBundle_tb;
     endtask
 
     logic rdy;
+    logic [XLEN-1:0] v2;
 
     initial begin
         step();
@@ -186,7 +195,9 @@ module PRFRenameBundle_tb;
         offer();
         check(dispatch_ready, "bundle without allocations is ready");
         check(src_ready[0] == 2'b11 && src_ready[1] == 2'b11, "x0 sources are ready");
-        check(src1_data[0] == 0 && src2_data[1] == 0, "x0 reads zero");
+        read_src(0, 0, v);
+        read_src(1, 1, v2);
+        check(v == 0 && v2 == 0, "x0 reads zero");
         step();
         retire(2);
         check(commit_valid == '0, "x0 writer and store retire without commands");
@@ -206,7 +217,8 @@ module PRFRenameBundle_tb;
         b2 = dst_tag[2];
         check(b0 == TAG_W'(32) && b1 == TAG_W'(33) && b2 == TAG_W'(34),
               "tags leave the free list in slot order");
-        check(src_ready[0] == 2'b11 && src1_data[0] == 0, "slot 0 reads committed x5");
+        read_src(0, 0, v);
+        check(src_ready[0] == 2'b11 && v == 0, "slot 0 reads committed x5");
         check(old_tag[0] == TAG_W'(5), "slot 0 old_tag is map[x5]");
         check(!src_ready[1][0] && src1_tag[1] == b0, "slot 1 rs1 chained to slot 0");
         check(src_ready[1][1], "slot 1 rs2 (x2) read from the map");
@@ -265,7 +277,8 @@ module PRFRenameBundle_tb;
         put(0, 0, 0, 6, 10);  // x6 = b1 (escrito agora), x10 = 35 (pendente)
         put(1, 0, 0, 5, 1);  // x5 = b2 (pendente), x1 arquitetural
         offer();
-        check(src_ready[0][0] && src1_data[0] == 66, "port 0 writeback bypassed");
+        read_src(0, 0, v);
+        check(src_ready[0][0] && v == 66, "port 0 writeback bypassed");
         check(!src_ready[0][1] && src2_tag[0] == TAG_W'(35), "x10 still pending");
         check(!src_ready[1][0] && src1_tag[1] == b2, "x5 youngest writer pending");
         check(src_ready[1][1], "x1 architectural");

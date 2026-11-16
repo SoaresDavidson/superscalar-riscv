@@ -32,8 +32,6 @@ module PRFRename #(
     input  logic                    rs_ready,
     output logic                    dispatch_ready,
     output logic [W-1:0][      1:0] src_ready,
-    output logic [W-1:0][ XLEN-1:0] src1_data,
-    output logic [W-1:0][ XLEN-1:0] src2_data,
     output logic [W-1:0][TAG_W-1:0] src1_tag,
     output logic [W-1:0][TAG_W-1:0] src2_tag,
     output logic [W-1:0][TAG_W-1:0] dst_tag,
@@ -63,7 +61,6 @@ module PRFRename #(
     logic [W-1:0][TAG_W-1:0] free_tags;
     logic [W-1:0][TAG_W-1:0] map_rs1_tag, map_rs2_tag, map_old_tag;
     logic [W-1:0] rf_rs1_valid, rf_rs2_valid;
-    logic [W-1:0][XLEN-1:0] rf_rs1_data, rf_rs2_data;
     logic [31:0][TAG_W-1:0] committed_map;
 
     // O slot k pega a tag livre seguinte às dos slots anteriores que alocam
@@ -101,9 +98,6 @@ module PRFRename #(
             end
         end
     end
-
-    assign src1_data = rf_rs1_data;
-    assign src2_data = rf_rs2_data;
 
     PRFFreeList #(
         .ENTRIES(ENTRIES),
@@ -167,8 +161,6 @@ module PRFRename #(
         .rs2_tag  (map_rs2_tag),
         .rs1_valid(rf_rs1_valid),
         .rs2_valid(rf_rs2_valid),
-        .rs1_data (rf_rs1_data),
-        .rs2_data (rf_rs2_data),
         .alloc,
         .alloc_tag(dst_tag),
         .wb_valid,
@@ -329,6 +321,7 @@ module PRFCommittedTable #(
 endmodule
 
 // Registradores físicos: value[] e state[] (FREE, RB_NOT_VALID, RB_VALID, AR).
+// O dispatch só lê state[] (rs*_valid); o valor sai pelas portas read_tag -> read_data.
 // Uma leitura é válida em RB_VALID ou AR, ou com writeback no mesmo ciclo (bypass).
 // O flush leva toda tag não AR para FREE.
 module PRFRegFile #(
@@ -346,8 +339,6 @@ module PRFRegFile #(
     input  logic [   W-1:0][TAG_W-1:0] rs2_tag,
     output logic [   W-1:0]            rs1_valid,
     output logic [   W-1:0]            rs2_valid,
-    output logic [   W-1:0][ XLEN-1:0] rs1_data,
-    output logic [   W-1:0][ XLEN-1:0] rs2_data,
     input  logic [   W-1:0]            alloc,
     input  logic [   W-1:0][TAG_W-1:0] alloc_tag,
     input  logic [WB_N-1:0]            wb_valid,
@@ -377,23 +368,15 @@ module PRFRegFile #(
     always_comb begin
         for (int k = 0; k < W; k++) begin
             rs1_valid[k] = has_value(state[rs1_tag[k]]);
-            rs1_data[k]  = regfile[rs1_tag[k]];
             rs2_valid[k] = has_value(state[rs2_tag[k]]);
-            rs2_data[k]  = regfile[rs2_tag[k]];
             for (int p = 0; p < WB_N; p++) begin
-                if (wb_valid[p] && wb_tag[p] == rs1_tag[k] && rs1_tag[k] != '0) begin
-                    rs1_valid[k] = 1'b1;
-                    rs1_data[k]  = wb_data[p];
-                end
-                if (wb_valid[p] && wb_tag[p] == rs2_tag[k] && rs2_tag[k] != '0) begin
-                    rs2_valid[k] = 1'b1;
-                    rs2_data[k]  = wb_data[p];
-                end
+                if (wb_valid[p] && wb_tag[p] == rs1_tag[k] && rs1_tag[k] != '0) rs1_valid[k] = 1'b1;
+                if (wb_valid[p] && wb_tag[p] == rs2_tag[k] && rs2_tag[k] != '0) rs2_valid[k] = 1'b1;
             end
         end
     end
 
-    // Portas de leitura: mesma regra das fontes do dispatch. read_valid em
+    // Portas de leitura: mesma regra de validade das fontes do dispatch. read_valid em
     // RB_VALID ou AR, ou com writeback no mesmo ciclo (bypass, exceto a tag 0).
     always_comb begin
         for (int r = 0; r < READ_N; r++) begin
