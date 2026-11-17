@@ -1,3 +1,4 @@
 build/
 superscalar-riscv.wiki/
-
+runs/
+.venv
