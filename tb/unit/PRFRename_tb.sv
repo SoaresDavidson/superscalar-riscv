@@ -13,11 +13,10 @@ module PRFRename_tb;
 
     // Portas do DUT
     logic reset = 1, flush = 0;
-    logic dispatch_valid = 0, writes_rd = 0, rob_ready;
+    logic dispatch_valid = 0, writes_rd = 0, rob_ready, rs_ready;
     logic [4:0] rs1 = 0, rs2 = 0, rd = 0;
     logic dispatch_ready;
     logic [1:0] src_ready;
-    logic [XLEN-1:0] src1_data, src2_data;
     logic [TAG_W-1:0] src1_tag, src2_tag, dst_tag, old_tag;
     logic wb_valid = 0;
     logic [TAG_W-1:0] wb_tag = 0;
@@ -28,7 +27,20 @@ module PRFRename_tb;
     // Bundle de um slot: sempre válido, sem slot anterior do qual depender
     logic slot_valid = 1, rs1_dep = 0, rs2_dep = 0, rd_dep = 0;
 
-    PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES), .W(1), .WB_N(1)) dut (.*);
+    // O dispatch só devolve tags: o valor das fontes é lido pelas portas 0 e 1 (src1_data/src2_data)
+    logic [5:0][TAG_W-1:0] read_tag;
+    logic [5:0] read_valid;
+    logic [5:0][XLEN-1:0] read_data;
+    logic [XLEN-1:0] src1_data, src2_data;
+    always_comb begin
+        read_tag = '0;
+        read_tag[0] = src1_tag;
+        read_tag[1] = src2_tag;
+    end
+    assign src1_data = read_data[0];
+    assign src2_data = read_data[1];
+
+    PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES), .W(1), .WB_N(1), .READ_N(6)) dut (.*);
 
     // ---- Mock do ROB ----
     logic [4:0] m_rd[0:ROB_N-1];
@@ -37,6 +49,9 @@ module PRFRename_tb;
     int m_head = 0, m_tail = 0, m_count = 0;
     logic rob_block = 0, do_retire = 0;
     assign rob_ready = !rob_block && m_count < ROB_N;
+    // Mock da Reservation Station: só a recusa importa para o rename
+    logic rs_block = 0;
+    assign rs_ready = !rs_block;
 
     logic [TAG_W-1:0] a, c, d, e, f, g, t, h, p, q, t1, t2, t3;
 
@@ -75,7 +90,7 @@ module PRFRename_tb;
     // aplica o clock no DUT, depois remove o head retirado e limpa os pulsos de um ciclo.
     task automatic step;
         logic xfer;
-        xfer = dispatch_valid && dispatch_ready && rob_ready;
+        xfer = dispatch_valid && dispatch_ready && rob_ready && rs_ready;
         if (flush) begin
             m_head = 0;
             m_tail = 0;
@@ -154,6 +169,13 @@ module PRFRename_tb;
         present(1, 6, 5, 0);
         check(dst_tag == t, "tag refused by the ROB must stay free");
         check(old_tag == TAG_W'(6), "x6 mapping unchanged after refused dispatch");
+        // RS recusa: mesma regra, a tag continua livre.
+        rs_block = 1;
+        step();
+        rs_block = 0;
+        present(1, 6, 5, 0);
+        check(dst_tag == t, "tag refused by the RS must stay free");
+        check(old_tag == TAG_W'(6), "x6 mapping unchanged after RS refusal");
         c = dst_tag;
         step();
 
