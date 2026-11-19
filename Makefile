@@ -27,6 +27,7 @@ vpath %_tb.sv $(addprefix tb/,$(SUITES))
 # PRFRename_tb fixes W = 1 and PRFRenameBundle_tb fixes W = 3, WB_N = 2.
 PARAMS_decode := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
 PARAMS_PipeFifo := DEPTH=1 DEPTH=2 DEPTH=3 DEPTH=4 DEPTH=8
+PARAMS_retire_team := DEEP2=0 DEEP2=1
 
 T ?= $(TESTS)
 
