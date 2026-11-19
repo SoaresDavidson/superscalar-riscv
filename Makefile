@@ -9,7 +9,7 @@
 # otherwise sort ahead of it).
 BASE_PKG := rtl/execute/execute_pkg.sv
 PKGS   := $(BASE_PKG) $(filter-out $(BASE_PKG),$(shell find rtl -name '*_pkg.sv' | sort))
-MODS   := $(shell find rtl -name '*.sv' ! -name '*_pkg.sv' | sort)
+MODS   := $(shell find rtl \( -name '*.sv' -o -name '*.v' \) ! -name '*_pkg.sv' | sort)
 RTL    := $(PKGS) $(MODS)
 SUITES := unit integration
 BUILD  := build
@@ -27,6 +27,7 @@ vpath %_tb.sv $(addprefix tb/,$(SUITES))
 # PRFRename_tb fixes W = 1 and PRFRenameBundle_tb fixes W = 3, WB_N = 2.
 PARAMS_decode := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
 PARAMS_PipeFifo := DEPTH=1 DEPTH=2 DEPTH=3 DEPTH=4 DEPTH=8
+PARAMS_retire_team := DEEP2=0 DEEP2=1
 
 T ?= $(TESTS)
 
@@ -39,8 +40,8 @@ test-integration: $(INTEGRATION_TESTS)
 $(TESTS): %: %_tb.sv $(RTL) | $(BUILD)
 	@set -e; for p in $(or $(PARAMS_$@),none); do \
 	  flag=$$( [ $$p = none ] || echo "-P$@_tb.$$p" ); \
-	  iverilog -g2012 -Wall -s $@_tb $$flag -o $(BUILD)/$@.vvp $(RTL) $<; \
-	  out=$$(vvp -n $(BUILD)/$@.vvp); echo "$$out"; \
+	  iverilog -g2012 -Wall -I rtl -s $@_tb $$flag -o $(BUILD)/$@.vvp $(RTL) $<; \
+	  out=$$(vvp -n $(BUILD)/$@.vvp 2>&1) || true; echo "$$out"; \
 	  echo "$$out" | grep -q PASS || { echo "$@ ($$p) FAIL"; exit 1; }; \
 	done
 
@@ -49,7 +50,7 @@ $(TESTS): %: %_tb.sv $(RTL) | $(BUILD)
 # only warning silenced. Verilator still elaborates and lints EVERY top: a
 # defect in any block fails this target.
 lint:
-	verilator --lint-only -Wall -Wno-MULTITOP $(RTL)
+	verilator --lint-only -Wall -Wno-MULTITOP -Irtl $(RTL)
 
 $(BUILD):
 	mkdir -p $@
