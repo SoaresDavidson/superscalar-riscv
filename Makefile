@@ -9,7 +9,7 @@
 # otherwise sort ahead of it).
 BASE_PKG := rtl/execute/execute_pkg.sv
 PKGS   := $(BASE_PKG) $(filter-out $(BASE_PKG),$(shell find rtl -name '*_pkg.sv' | sort))
-MODS   := $(shell find rtl -name '*.sv' ! -name '*_pkg.sv' | sort)
+MODS   := $(shell find rtl \( -name '*.sv' -o -name '*.v' \) ! -name '*_pkg.sv' | sort)
 RTL    := $(PKGS) $(MODS)
 SUITES := unit integration
 BUILD  := build
@@ -39,7 +39,7 @@ test-integration: $(INTEGRATION_TESTS)
 $(TESTS): %: %_tb.sv $(RTL) | $(BUILD)
 	@set -e; for p in $(or $(PARAMS_$@),none); do \
 	  flag=$$( [ $$p = none ] || echo "-P$@_tb.$$p" ); \
-	  iverilog -g2012 -Wall -s $@_tb $$flag -o $(BUILD)/$@.vvp $(RTL) $<; \
+	  iverilog -g2012 -Wall -I rtl -s $@_tb $$flag -o $(BUILD)/$@.vvp $(RTL) $<; \
 	  out=$$(vvp -n $(BUILD)/$@.vvp 2>&1) || true; echo "$$out"; \
 	  echo "$$out" | grep -q PASS || { echo "$@ ($$p) FAIL"; exit 1; }; \
 	done
@@ -49,7 +49,7 @@ $(TESTS): %: %_tb.sv $(RTL) | $(BUILD)
 # only warning silenced. Verilator still elaborates and lints EVERY top: a
 # defect in any block fails this target.
 lint:
-	verilator --lint-only -Wall -Wno-MULTITOP $(RTL)
+	verilator --lint-only -Wall -Wno-MULTITOP -Irtl $(RTL)
 
 $(BUILD):
 	mkdir -p $@

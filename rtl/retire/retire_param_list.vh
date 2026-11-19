@@ -1,0 +1,17 @@
+    parameter XLEN        = `RETIRE_XLEN,
+    parameter PC_W        = `RETIRE_PC_W,
+    parameter LANES       = `RETIRE_LANES,
+    parameter ROB_ROWS    = `RETIRE_ROB_ROWS,
+    parameter AREG_W      = `RETIRE_AREG_W,
+    parameter NUM_PREGS   = `RETIRE_NUM_PREGS,
+    parameter PREG_W      = `RETIRE_PREG_W,
+    parameter WB_PORTS    = `RETIRE_WB_PORTS,
+    parameter XC_PORTS    = `RETIRE_XC_PORTS,
+    parameter DBG_EN      = `RETIRE_DBG_EN,
+    parameter MTVEC_RESET = `RETIRE_MTVEC_RESET,
+
+    parameter NUM_AREGS   = 1 << AREG_W,
+    parameter KIND_W      = 4,
+    parameter CAUSE_W     = 5,
+    parameter ROB_ROW_W   = $clog2(ROB_ROWS),
+    parameter TAG_W       = $clog2(ROB_ROWS) + 3
