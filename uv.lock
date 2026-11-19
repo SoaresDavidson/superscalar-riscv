@@ -521,7 +521,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "librelane", specifier = ">=3.0.17" }]
+requires-dist = [{ name = "librelane", specifier = "==3.0.17" }]
 
 [[package]]
 name = "typing-extensions"
