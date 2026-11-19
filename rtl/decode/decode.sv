@@ -310,7 +310,7 @@ module decode
               default: begin                 // funct3 101: SRLI / SRAI
                 u.imm = shamt6;
                 if (sh6_ok) begin
-                  u.op = alt ? ALU_SRA : ALU_SRL;
+                  u.op = exec_op_t'(alt ? ALU_SRA : ALU_SRL);
                 end else begin
                   bad = 1'b1;
                   want_rs1  = 1'b0;
@@ -343,7 +343,7 @@ module decode
               3'b101: begin                  // SRLIW / SRAIW
                 u.imm = shamt5;
                 if (sh7_ok) begin
-                  u.op = alt ? ALU_SRAW : ALU_SRLW;
+                  u.op = exec_op_t'(alt ? ALU_SRAW : ALU_SRLW);
                 end else begin
                   bad = 1'b1;
                   want_rs1  = 1'b0;
