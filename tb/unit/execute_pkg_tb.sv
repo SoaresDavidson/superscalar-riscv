@@ -15,6 +15,12 @@ module execute_pkg_tb;
     // --- fu_of: every op maps to the right FU ---
     check(fu_of(ALU_ADD)    == FU_ALU,    "ALU_ADD -> FU_ALU");
     check(fu_of(ALU_AUIPC)  == FU_ALU,    "ALU_AUIPC -> FU_ALU");
+    check(fu_of(ALU_PC4)    == FU_ALU,    "ALU_PC4 -> FU_ALU");
+    check(fu_of(ALU_ADDW)   == FU_ALU,    "ALU_ADDW -> FU_ALU");
+    check(fu_of(AGU_LD)     == FU_AGU,    "AGU_LD -> FU_AGU");
+    check(fu_of(OP_NONE)    == FU_NONE,   "OP_NONE -> FU_NONE");
+    check( is_load(AGU_LD)  && is_load(AGU_LBU), "loads are loads");
+    check(!is_load(AGU_SD)  && !is_load(ALU_ADD), "stores/ALU are not loads");
     check(fu_of(BR_BEQ)     == FU_BRANCH, "BR_BEQ -> FU_BRANCH");
     check(fu_of(BR_JALR)    == FU_BRANCH, "BR_JALR -> FU_BRANCH");
     check(fu_of(AGU_LB)     == FU_AGU,    "AGU_LB -> FU_AGU");

@@ -86,6 +86,7 @@ module alu
       ALU_SRA:   result = xlen_t'($signed(op_a) >>> shamt);
       ALU_LUI:   result = imm;
       ALU_AUIPC: result = pc + imm;
+      ALU_PC4:   result = pc + xlen_t'(4);   // JAL link value
       default:   result = is_word ? res32_ext : '0;  // W ops, else unreachable
     endcase
   end
@@ -113,7 +114,7 @@ module alu
     end else if (accept) begin
       valid_q          <= 1'b1;
       resp_q.result    <= result;
-      resp_q.rd        <= req.rd;
+      resp_q.dst_tag   <= req.dst_tag;
       resp_q.wr_en     <= req.wr_en;
       resp_q.age       <= req.age;
       resp_q.exception <= 1'b0;

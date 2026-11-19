@@ -25,10 +25,10 @@ module agu_tb;
 
   // expected FIFO
   localparam int D = 4096;
-  age_t e_age[D]; xlen_t e_addr[D]; reg_t e_rd[D]; logic e_wr[D];
+  age_t e_age[D]; xlen_t e_addr[D]; tag_t e_rd[D]; logic e_wr[D];
   logic e_exc[D]; exc_cause_t e_cause[D];
   integer head=0, tail=0;
-  function automatic void push(input age_t a, input xlen_t ad, input reg_t rd,
+  function automatic void push(input age_t a, input xlen_t ad, input tag_t rd,
                                input logic wr, input logic exc, input exc_cause_t c);
     e_age[tail]=a; e_addr[tail]=ad; e_rd[tail]=rd; e_wr[tail]=wr;
     e_exc[tail]=exc; e_cause[tail]=c; tail++;
@@ -42,7 +42,7 @@ module agu_tb;
     else begin
       check(resp.age==e_age[head],       $sformatf("age got %0d exp %0d", resp.age, e_age[head]));
       check(resp.result==e_addr[head],   $sformatf("age %0d addr got %h exp %h", resp.age, resp.result, e_addr[head]));
-      check(resp.rd==e_rd[head],         $sformatf("age %0d rd", resp.age));
+      check(resp.dst_tag==e_rd[head],         $sformatf("age %0d rd", resp.age));
       check(resp.wr_en==e_wr[head],      $sformatf("age %0d wr_en", resp.age));
       check(resp.exception==e_exc[head], $sformatf("age %0d exc got %b exp %b", resp.age, resp.exception, e_exc[head]));
       if (e_exc[head]) check(resp.cause==e_cause[head], $sformatf("age %0d cause", resp.age));
@@ -68,7 +68,7 @@ module agu_tb;
 
   // reference: address and the misalignment exception
   task automatic send(input exec_op_t op, input xlen_t base, input xlen_t imm,
-                      input reg_t rd);
+                      input tag_t rd);
     xlen_t addr; int unsigned sz; logic misal, wr; logic hd; exc_cause_t cause;
     addr = base + imm;
     sz   = size_of(op);
@@ -80,7 +80,7 @@ module agu_tb;
     else          cause = CAUSE_LOAD_MISALIGNED;
     @(negedge clk);
     req='0; req.op=op; req.src1=base; req.imm=imm; req.use_imm=1'b1;
-    req.rd=rd; req.wr_en=hd; req.age=next_age;
+    req.dst_tag=rd; req.wr_en=hd; req.age=next_age;
     req_valid=1;
     #1; while(!req_ready) begin @(negedge clk); #1; end
     push(next_age, addr, rd, hd, misal, cause); next_age++;
@@ -135,7 +135,7 @@ module agu_tb;
     send(AGU_LW, 64'h4000, 64'd0, 5'd5);         // A accepted (output was empty)
     @(negedge clk);                               // A now held in the output reg
     req='0; req.op=AGU_LW; req.src1=64'h4008; req.use_imm=1'b1;
-    req.rd=5'd5; req.wr_en=1'b1; req.age=next_age; req_valid=1'b1;  // present B
+    req.dst_tag=5'd5; req.wr_en=1'b1; req.age=next_age; req_valid=1'b1;  // present B
     repeat(3) begin #1;
       check(req_ready==0,  "bp: req_ready 0 while output held");
       check(resp_valid==1 && resp.result==64'h4000, "bp: held result stable");

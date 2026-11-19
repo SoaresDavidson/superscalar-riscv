@@ -5,7 +5,7 @@
 // Spec: wiki Execute.md; contract: rtl/execute/README.md.
 //
 // Same output-register + valid/ready + selective-flush structure as the ALU.
-// result carries the effective address. For a load, wr_en/rd are passed
+// result carries the effective address. For a load, wr_en/dst_tag are passed
 // through (the loaded value is written later, by Memory). For a store, wr_en
 // arrives as 0. The store DATA path to Memory is a separate open item.
 module agu
@@ -95,7 +95,7 @@ module agu
     end else if (accept) begin
       valid_q          <= 1'b1;
       resp_q.result    <= addr;
-      resp_q.rd        <= req.rd;
+      resp_q.dst_tag   <= req.dst_tag;
       resp_q.wr_en     <= req.wr_en;
       resp_q.age       <= req.age;
       resp_q.exception <= misaligned;

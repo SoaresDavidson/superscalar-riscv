@@ -51,12 +51,12 @@ module alu_tb;
   localparam int FIFO_D = 1024;
   age_t  exp_age [FIFO_D];
   xlen_t exp_res [FIFO_D];
-  reg_t  exp_rd  [FIFO_D];
+  tag_t  exp_rd  [FIFO_D];
   logic  exp_wr  [FIFO_D];
   integer head = 0, tail = 0;
 
   function automatic void push_expected(input age_t a, input xlen_t r,
-                                        input reg_t rd, input logic wr);
+                                        input tag_t rd, input logic wr);
     exp_age[tail] = a;
     exp_res[tail] = r;
     exp_rd[tail]  = rd;
@@ -78,7 +78,7 @@ module alu_tb;
       end else begin
         check(resp.age    == exp_age[head], $sformatf("age: got %0d, expected %0d", resp.age, exp_age[head]));
         check(resp.result == exp_res[head], $sformatf("age %0d result: got %h, expected %h", resp.age, resp.result, exp_res[head]));
-        check(resp.rd     == exp_rd[head],  $sformatf("age %0d rd: got %0d, expected %0d", resp.age, resp.rd, exp_rd[head]));
+        check(resp.dst_tag     == exp_rd[head],  $sformatf("age %0d rd: got %0d, expected %0d", resp.age, resp.dst_tag, exp_rd[head]));
         check(resp.wr_en  == exp_wr[head],  $sformatf("age %0d wr_en: got %b, expected %b", resp.age, resp.wr_en, exp_wr[head]));
         check(resp.exception == 1'b0,       $sformatf("age %0d raised an exception", resp.age));
         head++;
@@ -95,7 +95,7 @@ module alu_tb;
   // before the rising edge that performs the handshake.
   task automatic send(input exec_op_t op, input xlen_t a, input xlen_t b,
                       input xlen_t imm, input xlen_t pc, input logic use_imm,
-                      input reg_t rd, input logic wr_en, input xlen_t expected);
+                      input tag_t rd, input logic wr_en, input xlen_t expected);
     @(negedge clk);
     req             = '0;
     req.op          = op;
@@ -104,7 +104,7 @@ module alu_tb;
     req.imm         = imm;
     req.use_imm     = use_imm;
     req.pc          = pc;
-    req.rd          = rd;
+    req.dst_tag          = rd;
     req.wr_en       = wr_en;
     req.age         = next_age;
     req_valid       = 1'b1;
@@ -161,6 +161,7 @@ module alu_tb;
       ALU_SRA:   return (a >> sh) | (a[XLEN-1] ? ~({XLEN{1'b1}} >> sh) : '0);
       ALU_LUI:   return imm;
       ALU_AUIPC: return pc + imm;
+      ALU_PC4:   return pc + 64'd4;
       ALU_ADDW:  return {{32{w32[31]}}, w32};
       ALU_SUBW:  return {{32{w32[31]}}, w32};
       ALU_SLLW:  return {{32{w32[31]}}, w32};
@@ -196,7 +197,7 @@ module alu_tb;
   endfunction
 
   function automatic exec_op_t random_alu_op();
-    case (($random(seed) & 32'h7FFF_FFFF) % 17)
+    case (($random(seed) & 32'h7FFF_FFFF) % 18)
       0:       return ALU_ADD;
       1:       return ALU_SUB;
       2:       return ALU_AND;
@@ -212,7 +213,8 @@ module alu_tb;
       12:      return ALU_ADDW;
       13:      return ALU_SUBW;
       14:      return ALU_SLLW;
-      15:      return ALU_SRLW;
+      16:      return ALU_SRAW;
+      default: return ALU_PC4;
       default: return ALU_SRAW;
     endcase
   endfunction
@@ -266,6 +268,7 @@ module alu_tb;
     send(ALU_ADD,   64'd10, 64'd999, ONES - 64'd2, '0, 1'b1, 7'd5, 1'b1, 64'd7);   // 10 + (-3)
     send(ALU_SLL,   64'd1,  64'd0,   64'd33,       '0, 1'b1, 7'd5, 1'b1, 64'h0000_0002_0000_0000);
     send(ALU_LUI,   64'd123, 64'd456, 64'h0000_0000_1234_5000, '0, 1'b1, 7'd5, 1'b1, 64'h0000_0000_1234_5000);
+    send(ALU_PC4,   64'd0,   64'd0,   64'd0,  64'h1000, 1'b0, 7'd5, 1'b1, 64'h1004);  // JAL link
     send(ALU_AUIPC, 64'd123, 64'd456, 64'h20, 64'h1000, 1'b1, 7'd5, 1'b1, 64'h1020);
 
     // same register as source and destination: add x5, x5, x5
@@ -371,7 +374,7 @@ module alu_tb;
       imm = random_operand();
       pc  = {$random(seed), $random(seed)} & ~xlen_t'(3);
       ui  = $random(seed);
-      send(op, a, b, imm, pc, ui, reg_t'($random(seed)), 1'b1,
+      send(op, a, b, imm, pc, ui, tag_t'($random(seed)), 1'b1,
            model(op, a, ui ? imm : b, imm, pc));
     end
     idle();
