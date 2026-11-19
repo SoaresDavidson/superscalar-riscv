@@ -93,32 +93,38 @@ When code and wiki disagree, report it instead of silently picking one.
 - `x0` never allocates a tag and always reads 0.
 - Identifiers and code comments in English; docs and wiki in Portuguese.
 
-### Icarus 12.0 limits (measured, not guessed)
+### Icarus 13.0 limits (measured, not guessed)
 
-These shape how per-slot logic is written. The first two are hard errors, the
-rest compile and silently misbehave — which is worse.
+These shape how per-slot logic is written. Measured on Icarus 13.0 with
+minimal probes; some hard errors are gone since 12.0, others are new. Several
+cases compile and silently misbehave, which is worse than an error.
 
 - **No variable index followed by a second select.** `a[i][0]` with `int i`
-  inside `always_*` aborts the elaborator. Index per-slot vectors with a
-  `genvar` in a `generate` loop, never with a loop variable.
+  inside `always_*` aborts the elaborator (`Array index expressions must be
+  constant here`). Index per-slot vectors with a `genvar` in a `generate`
+  loop, never with a loop variable.
 - **No `'{field: value}` assignment patterns.** Syntax error. Assign struct
   fields one by one.
-- **`break` is accepted, warned about with `sorry:`, and then ignored.** Never
-  use it. For "closest previous writer", loop upward with no break and let the
-  last write win.
-- **`always_comb` with genvar-indexed targets** elaborates with
-  `has no sensitivities`. Use continuous `assign` inside the `generate` block.
+- **Enum from `?:` needs an explicit cast.** `u.op = alt ? ALU_SRA : ALU_SRL;`
+  is a hard error (`This assignment requires an explicit cast`): the
+  conditional operator yields a plain integral value, not the enum type. Write
+  `u.op = exec_op_t'(alt ? ALU_SRA : ALU_SRL);`. Icarus 12.0 accepted it, so
+  older code may still carry the bare form.
+- **No `break` inside `always_*`.** It works in an `initial` block, but inside
+  `always_comb` elaboration prints `internal error: NetProc::nex_input not
+  implemented` and the sensitivity list is not computed. Never use it. For
+  "closest previous writer", loop upward with no break and let the last write
+  win.
 - **No constant select read inside an `always_*` block.** A genvar index
-  (`uses_rs1[i]`), a part-select (`inst[31:20]`) or a struct field read back
-  mid-block (`!u.illegal`) all produce
-  `sorry: constant selects in always_* processes are not currently supported
-  (all bits will be included)`, and the sensitivity list widens to the whole
-  vector. Unlike the other `sorry:` cases the behavior stays correct, but
-  hoist every such read into a continuous `assign` anyway: a `sorry:` left in
-  the build is noise that hides the next one. A **variable** select inside
-  `always_*` is fine.
-- **No `return` in a task.** Hard error. Guard with
-  `if (cond) begin ... end else begin ... end` instead of an early exit.
+  (`a[g]` in a `generate` loop), a part-select (`inst[31:20]`) or a struct
+  field read back mid-block (`!u.illegal`) all produce
+  `sorry: constant selects in always_* processes are not fully supported
+  (the process will be sensitive to all bits in ...)`, and the sensitivity
+  list widens to the whole vector. The behavior stays correct, but hoist every
+  such read into a continuous `assign` anyway: a `sorry:` left in the build is
+  noise that hides the next one. A **variable** select inside `always_*` is
+  fine. Inside a `generate` block, prefer continuous `assign` over
+  `always_comb` for per-slot logic for the same reason.
 - **Never read a slot as `arr[i].field`. Copy the element to a scalar
   temporary first:** `s = arr[i]; ... s.field`. With `WIDTH = 1` -- a packed
   array of ONE struct -- `arr[0].field` reads `x` while the storage itself is
@@ -127,10 +133,14 @@ rest compile and silently misbehave — which is worse.
   temporary and assign the element once (`arr[i] = s`), never field by field.
   Unpacked per-slot arrays dodge the whole family of index limits and are
   preferred for internal signals.
-- **No `inside` operator.** `sorry: not supported`, and `iverilog` then exits
-  non-zero leaving the PREVIOUS `.vvp` in place: run a stale binary and the
-  same failure repeats while the source already says otherwise. Always check
-  the exit status, never just grep the output.
+- **No `inside` operator.** `sorry: "inside" expressions not supported yet`,
+  and `iverilog` then exits non-zero leaving the PREVIOUS `.vvp` in place: run
+  a stale binary and the same failure repeats while the source already says
+  otherwise. Always check the exit status, never just grep the output.
+
+Fixed since 12.0, now allowed: `return` in a task (static or automatic), and
+`always_comb` with a genvar-indexed target (`b[g] = c` no longer reports
+`has no sensitivities`). Code written for 12.0 that avoids them still works.
 
 Width casts, not bit-selects: `PB'(k)` — `k[PB-1:0]` trips the same index
 limit, and implicit truncation (`p = k`) fails `make lint` with Verilator
