@@ -11,6 +11,7 @@ module PRFRenameBundle_tb;
     localparam int TAG_W = $clog2(ENTRIES);
     localparam int W = 3;
     localparam int WB_N = 2;
+    localparam int READ_N = 6;
     localparam int ROB_N = 16;
 
     logic clk = 0;
@@ -18,12 +19,11 @@ module PRFRenameBundle_tb;
 
     // Portas do DUT
     logic reset = 1, flush = 0;
-    logic dispatch_valid = 0, rob_ready, dispatch_ready;
+    logic dispatch_valid = 0, rob_ready, rs_ready, dispatch_ready;
     logic [W-1:0] slot_valid = '0, writes_rd = '0;
     logic [W-1:0][4:0] rs1 = '0, rs2 = '0, rd = '0;
     logic [W-1:0][W-1:0] rs1_dep, rs2_dep, rd_dep;
     logic [W-1:0][1:0] src_ready;
-    logic [W-1:0][XLEN-1:0] src1_data, src2_data;
     logic [W-1:0][TAG_W-1:0] src1_tag, src2_tag, dst_tag, old_tag;
     logic [WB_N-1:0] wb_valid = '0;
     logic [WB_N-1:0][TAG_W-1:0] wb_tag = '0;
@@ -31,8 +31,11 @@ module PRFRenameBundle_tb;
     logic [W-1:0] commit_valid = '0;
     logic [W-1:0][4:0] commit_rd = '0;
     logic [W-1:0][TAG_W-1:0] commit_tag = '0, commit_old_tag = '0;
+    logic [READ_N-1:0][TAG_W-1:0] read_tag = '0;
+    logic [READ_N-1:0] read_valid;
+    logic [READ_N-1:0][XLEN-1:0] read_data;
 
-    PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES), .W(W), .WB_N(WB_N)) dut (.*);
+    PRFRename #(.XLEN(XLEN), .ENTRIES(ENTRIES), .W(W), .WB_N(WB_N), .READ_N(READ_N)) dut (.*);
 
     // ---- Mock do Decode: escritor válido anterior mais próximo de cada registrador ----
     always_comb begin
@@ -56,6 +59,9 @@ module PRFRenameBundle_tb;
     int m_head = 0, m_tail = 0, m_count = 0, n_retire = 0;
     logic rob_block = 0;
     assign rob_ready = !rob_block && m_count + $countones(slot_valid) <= ROB_N;
+    // Mock da Reservation Station: só a recusa importa para o rename
+    logic rs_block = 0;
+    assign rs_ready = !rs_block;
 
     logic [TAG_W-1:0] b0, b1, b2, t;
     logic [TAG_W-1:0] got[0:4];
@@ -114,7 +120,7 @@ module PRFRenameBundle_tb;
     // aplica o clock no DUT, depois remove as entradas retiradas e limpa os pulsos.
     task automatic step;
         logic xfer;
-        xfer = dispatch_valid && dispatch_ready && rob_ready;
+        xfer = dispatch_valid && dispatch_ready && rob_ready && rs_ready;
         if (flush) begin
             m_head = 0;
             m_tail = 0;
@@ -148,6 +154,15 @@ module PRFRenameBundle_tb;
         #1;
     endtask
 
+    // Valor da fonte s (0 = rs1, 1 = rs2) do slot k, lido pela porta 0 com read_tag = src*_tag.
+    // O dispatch não devolve valores. Só vale com src_ready; solta a porta ao terminar.
+    task automatic read_src(input int k, input int s, output logic [XLEN-1:0] data);
+        read_tag[0] = s == 0 ? src1_tag[k] : src2_tag[k];
+        #1;
+        data = read_data[0];
+        read_tag[0] = '0;
+    endtask
+
     // Lê x[r] pelo slot 0 sem fazer dispatch; retorna ready e valor.
     task automatic peek(input logic [4:0] r, output logic ready, output logic [XLEN-1:0] data,
                         output logic [TAG_W-1:0] tag);
@@ -155,7 +170,7 @@ module PRFRenameBundle_tb;
         put(0, 0, 0, r, 0);
         offer();
         ready = src_ready[0][0];
-        data = src1_data[0];
+        read_src(0, 0, data);
         tag = src1_tag[0];
         dispatch_valid = 0;
         clear();
@@ -163,6 +178,7 @@ module PRFRenameBundle_tb;
     endtask
 
     logic rdy;
+    logic [XLEN-1:0] v2;
 
     initial begin
         step();
@@ -179,7 +195,9 @@ module PRFRenameBundle_tb;
         offer();
         check(dispatch_ready, "bundle without allocations is ready");
         check(src_ready[0] == 2'b11 && src_ready[1] == 2'b11, "x0 sources are ready");
-        check(src1_data[0] == 0 && src2_data[1] == 0, "x0 reads zero");
+        read_src(0, 0, v);
+        read_src(1, 1, v2);
+        check(v == 0 && v2 == 0, "x0 reads zero");
         step();
         retire(2);
         check(commit_valid == '0, "x0 writer and store retire without commands");
@@ -199,7 +217,8 @@ module PRFRenameBundle_tb;
         b2 = dst_tag[2];
         check(b0 == TAG_W'(32) && b1 == TAG_W'(33) && b2 == TAG_W'(34),
               "tags leave the free list in slot order");
-        check(src_ready[0] == 2'b11 && src1_data[0] == 0, "slot 0 reads committed x5");
+        read_src(0, 0, v);
+        check(src_ready[0] == 2'b11 && v == 0, "slot 0 reads committed x5");
         check(old_tag[0] == TAG_W'(5), "slot 0 old_tag is map[x5]");
         check(!src_ready[1][0] && src1_tag[1] == b0, "slot 1 rs1 chained to slot 0");
         check(src_ready[1][1], "slot 1 rs2 (x2) read from the map");
@@ -232,6 +251,12 @@ module PRFRenameBundle_tb;
         check(dispatch_ready, "two writers fit in two free tags");
         step();
         rob_block = 0;
+        // A RS recusa o mesmo bundle: também nada é alocado.
+        rs_block = 1;
+        offer();
+        check(dispatch_ready, "rename alone accepts while the RS refuses");
+        step();
+        rs_block = 0;
         offer();
         check(dst_tag[0] == TAG_W'(35) && dst_tag[2] == TAG_W'(36),
               "refused bundles allocated nothing; slot 1 consumed no tag");
@@ -252,7 +277,8 @@ module PRFRenameBundle_tb;
         put(0, 0, 0, 6, 10);  // x6 = b1 (escrito agora), x10 = 35 (pendente)
         put(1, 0, 0, 5, 1);  // x5 = b2 (pendente), x1 arquitetural
         offer();
-        check(src_ready[0][0] && src1_data[0] == 66, "port 0 writeback bypassed");
+        read_src(0, 0, v);
+        check(src_ready[0][0] && v == 66, "port 0 writeback bypassed");
         check(!src_ready[0][1] && src2_tag[0] == TAG_W'(35), "x10 still pending");
         check(!src_ready[1][0] && src1_tag[1] == b2, "x5 youngest writer pending");
         check(src_ready[1][1], "x1 architectural");
@@ -261,9 +287,27 @@ module PRFRenameBundle_tb;
         step();
         peek(6, rdy, v, t);
         check(rdy && v == 66, "x6 value stored after writeback");
+        // ---- Portas de leitura tag -> valor, com bypass das duas portas de writeback ----
         writeback(0, b2, 77);
         writeback(1, TAG_W'(35), 100);
+        read_tag[0] = b1;          // escrito no ciclo anterior
+        read_tag[1] = b2;          // writeback na porta 0 neste ciclo
+        read_tag[2] = TAG_W'(35);  // writeback na porta 1 neste ciclo
+        read_tag[3] = TAG_W'(36);  // ainda sem valor: read_valid = 0
+        read_tag[4] = TAG_W'(1);   // arquitetural
+        read_tag[5] = b1;          // duas portas lendo a mesma tag
+        #1;
+        check(read_data[0] == 66 && read_data[5] == 66, "read ports return stored value");
+        check(read_data[1] == 77, "read port bypasses writeback port 0");
+        check(read_data[2] == 100, "read port bypasses writeback port 1");
+        check(read_valid == 6'b110111, "only the pending tag is not valid");
+        check(read_data[4] == 0, "read port of an architectural tag");
         step();
+        read_tag[3] = b2;
+        #1;
+        check(read_valid[3] && read_data[3] == 77 && read_valid[2] && read_data[2] == 100,
+              "bypassed values stored at the edge");
+        read_tag = '0;
         writeback(0, TAG_W'(36), 110);
         step();
 

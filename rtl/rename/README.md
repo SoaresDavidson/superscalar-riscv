@@ -25,15 +25,16 @@ comandos (alocar, promover, liberar, restaurar no flush). Em `ROBRename` o ROB
 | `dispatch_valid` | entrada | há uma instrução tentando entrar |
 | `rs1`, `rs2`, `rd`, `writes_rd` | entrada | registradores arquiteturais e se a instrução escreve `rd` |
 | `rob_ready` | entrada | o ROB tem entrada livre |
+| `rs_ready` | entrada | a Reservation Station tem entrada livre |
 | `dispatch_ready` | saída | há tag livre, ou a instrução não precisa de tag |
-| `src_ready`, `src1_data`, `src2_data`, `src1_tag`, `src2_tag` | saída | resolução das fontes |
+| `src_ready`, `src1_tag`, `src2_tag` | saída | resolução das fontes: só tag e pronto, sem valor (o valor sai pelas portas `read_tag`) |
 | `dst_tag` | saída | tag nova alocada para `rd` |
 | `old_tag` | saída | `map[rd]` de antes da alocação |
 
-A instrução entra quando `dispatch_valid && dispatch_ready && rob_ready`. Só
-aloca tag se `writes_rd && rd != 0`; escritas em `x0` não alocam nada. O
-`rob_ready` entra no rename para que nunca seja alocada uma tag que o ROB
-recusou.
+A instrução entra quando `dispatch_valid && dispatch_ready && rob_ready &&
+rs_ready`. Só aloca tag se `writes_rd && rd != 0`; escritas em `x0` não alocam
+nada. `rob_ready` e `rs_ready` entram no rename para que nunca seja alocada uma
+tag que o ROB ou a Reservation Station recusou.
 
 `rs1` e `rs2` são resolvidos **antes** da alocação de `rd`, permitindo ler o
 valor anterior quando uma instrução usa o mesmo registrador como fonte e
@@ -52,9 +53,26 @@ a tag, pois este módulo não contém a lógica de wakeup. O ROB observa o mesmo
 writeback para marcar a própria entrada como terminada.
 
 Um writeback no mesmo ciclo do dispatch é repassado às fontes (bypass): se
-`wb_tag` for a tag de uma fonte, ela sai com `src_ready=1` e
-`src*_data=wb_data`. Sem o bypass, a instrução perderia o broadcast desse ciclo
-e esperaria a tag para sempre. A tag 0 (`x0`) não participa do bypass.
+`wb_tag` for a tag de uma fonte, ela sai com `src_ready=1`. Sem o bypass, a
+instrução perderia o broadcast desse ciclo e esperaria a tag para sempre. O
+valor não sai no dispatch: quem precisa dele lê `value[src*_tag]` pelas portas
+`read_tag` (o writeback do mesmo ciclo é repassado a elas). A tag 0 (`x0`) não
+participa do bypass.
+
+### Leitura `tag -> valor`
+
+`PRFRename` tem `READ_N` portas de leitura (padrão 6), independentes do
+dispatch e sem handshake:
+
+| Sinal | Sentido | Significado |
+|---|---|---|
+| `read_tag[r]` | entrada | tag física a ler, `r = 0..READ_N-1` |
+| `read_valid[r]` | saída | a tag tem valor: estado `RB_VALID` ou `AR`, ou writeback no mesmo ciclo |
+| `read_data[r]` | saída | `value[read_tag[r]]`, combinacional; só tem significado com `read_valid[r]` |
+
+A regra de validade é a mesma das fontes do dispatch. Um writeback no mesmo ciclo é
+repassado (bypass): se `wb_tag[p] == read_tag[r]`, `read_valid[r] = 1` e
+`read_data[r] = wb_data[p]`. A tag 0 não participa do bypass.
 
 ### Commit
 
@@ -92,6 +110,9 @@ writebacks das instruções descartadas, pois uma tag pode ser reutilizada.
 
 - Como o valor retirado chega à verificação final (decisão 13): uma porta de
   leitura `commit_tag -> commit_data` no rename ou outro caminho. Não decidido.
+- Quantas portas de leitura são necessárias (Home da wiki: "Quantas portas de
+  leitura?"). O padrão `READ_N = 6` corresponde a duas fontes por slot com
+  `W = 3`. O dispatch não lê valores; quem consome as portas é o issue.
 - O número de portas de writeback (`WB_N`) depende das unidades funcionais
   (página Execute da wiki). O padrão do módulo é `WB_N = 1`.
 - `RRF` e `ROBRename` ainda são de uma instrução por ciclo.
@@ -100,7 +121,7 @@ writebacks das instruções descartadas, pois uma tag pode ser reutilizada.
 
 As tabelas acima descrevem um slot. Em `PRFRename`, cada sinal por instrução é
 um packed array indexado pelo slot `k = 0..W-1` (slot 0 é o mais antigo); o
-handshake (`dispatch_valid`, `rob_ready`, `dispatch_ready`) é único para o
+handshake (`dispatch_valid`, `rob_ready`, `rs_ready`, `dispatch_ready`) é único para o
 bundle. A especificação completa está na wiki, em "Bundle de largura `W`".
 
 | Sinal | Sentido | Significado |
@@ -133,7 +154,7 @@ não tem `ROB_ENTRIES`: o ROB é o próprio banco de renomeação (`ENTRIES`).
 | `PRFFreeList` | fila circular das tags livres; até `W` pops e `W` pushes por ciclo; no flush, `head` volta a `tail` |
 | `PRFMapTable` | `x0..x31 -> tag` especulativo; fornece `src*_tag` e `old_tag` |
 | `PRFCommittedTable` | `x0..x31 -> tag` arquitetural; restaura a map table no flush |
-| `PRFRegFile` | `value[]` e `state[]` por tag (`FREE`, `RB_NOT_VALID`, `RB_VALID`, `AR`) |
+| `PRFRegFile` | `value[]` e `state[]` por tag (`FREE`, `RB_NOT_VALID`, `RB_VALID`, `AR`); portas de leitura `read_tag -> read_valid, read_data` |
 
 Para verificar (hoje só `PRFRename` está em `rtl/rename/`):
 
@@ -141,4 +162,5 @@ Para verificar (hoje só `PRFRename` está em `rtl/rename/`):
 make test T="PRFRename PRFRenameBundle"
 ```
 
-`PRFRename_tb` usa `W = 1`; `PRFRenameBundle_tb` usa `W = 3` e `WB_N = 2`.
+`PRFRename_tb` usa `W = 1`; `PRFRenameBundle_tb` usa `W = 3`, `WB_N = 2` e
+`READ_N = 6` e cobre as portas de leitura.
