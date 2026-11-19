@@ -83,6 +83,21 @@ module decode_rename_tb;
   logic [WIDTH-1:0][XLEN-1:0]  rn_src1_data, rn_src2_data;
   logic [WIDTH-1:0][TAG_W-1:0] rn_src1_tag, rn_src2_tag, rn_dst_tag, rn_old_tag;
 
+  // Source values: since decision 16 the rename no longer returns them with
+  // the tags. They are read through the PRF read ports, the way the issue
+  // stage does: ports 0..WIDTH-1 read src1, WIDTH..2*WIDTH-1 read src2.
+  localparam int READ_N = 2 * WIDTH;
+  logic [READ_N-1:0][TAG_W-1:0] rd_tag;
+  logic [READ_N-1:0]            rd_valid;
+  logic [READ_N-1:0][XLEN-1:0]  rd_data;
+
+  for (genvar k = 0; k < WIDTH; k++) begin : g_read
+    assign rd_tag[k]         = rn_src1_tag[k];
+    assign rd_tag[WIDTH + k] = rn_src2_tag[k];
+    assign rn_src1_data[k]   = rd_data[k];
+    assign rn_src2_data[k]   = rd_data[WIDTH + k];
+  end
+
   logic [WB_N-1:0]             wb_valid;
   logic [WB_N-1:0][TAG_W-1:0]  wb_tag;
   logic [WB_N-1:0][XLEN-1:0]   wb_data;
@@ -109,7 +124,7 @@ module decode_rename_tb;
   assign dec_ready = rn_dispatch_ready && rob_ready;
 
   PRFRename #(
-    .XLEN(XLEN), .ENTRIES(ENTRIES), .W(WIDTH), .WB_N(WB_N)
+    .XLEN(XLEN), .ENTRIES(ENTRIES), .W(WIDTH), .WB_N(WB_N), .READ_N(READ_N)
   ) u_rename (
     .clk, .reset, .flush,
     .dispatch_valid (dec_valid),
@@ -122,15 +137,17 @@ module decode_rename_tb;
     .rs2_dep        (dec_dep_rs2),
     .rd_dep         (dec_dep_rd),
     .rob_ready      (rob_ready),
+    .rs_ready       (1'b1),           // no RS in this test
     .dispatch_ready (rn_dispatch_ready),
     .src_ready      (rn_src_ready),
-    .src1_data      (rn_src1_data),
-    .src2_data      (rn_src2_data),
     .src1_tag       (rn_src1_tag),
     .src2_tag       (rn_src2_tag),
     .dst_tag        (rn_dst_tag),
     .old_tag        (rn_old_tag),
     .wb_valid, .wb_tag, .wb_data,
+    .read_tag       (rd_tag),
+    .read_valid     (rd_valid),
+    .read_data      (rd_data),
     .commit_valid   (cm_valid),
     .commit_rd      (cm_rd),
     .commit_tag     (cm_tag),

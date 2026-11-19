@@ -2,9 +2,15 @@
 # compiles against every file in rtl/. A testbench signals success by printing
 # "PASS" and failure through $fatal. Test names must be unique across suites.
 
-# Packages first: a file that imports a package only compiles after it.
-RTL    := $(sort $(shell find rtl -name '*_pkg.sv')) \
-          $(sort $(shell find rtl -name '*.sv' ! -name '*_pkg.sv'))
+# Packages come first: iverilog resolves `import` in command-line order, so a
+# consumer compiled before its package is a syntax error. Both lists are
+# sorted, because the order `find` returns is not stable. execute_pkg goes
+# before every other package, because the others import it (dispatch_pkg would
+# otherwise sort ahead of it).
+BASE_PKG := rtl/execute/execute_pkg.sv
+PKGS   := $(BASE_PKG) $(filter-out $(BASE_PKG),$(shell find rtl -name '*_pkg.sv' | sort))
+MODS   := $(shell find rtl -name '*.sv' ! -name '*_pkg.sv' | sort)
+RTL    := $(PKGS) $(MODS)
 SUITES := unit integration
 BUILD  := build
 
@@ -15,11 +21,14 @@ TESTS := $(UNIT_TESTS) $(INTEGRATION_TESTS)
 
 vpath %_tb.sv $(addprefix tb/,$(SUITES))
 
+# Parameter sets a testbench must pass; a test without an entry runs once.
+# No PARAMS_register_rename: there is no `register_rename` test. The rename
+# tests are PRFRename and PRFRenameBundle, and they take no parameter sets --
+# PRFRename_tb fixes W = 1 and PRFRenameBundle_tb fixes W = 3, WB_N = 2.
+PARAMS_decode := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
+PARAMS_PipeFifo := DEPTH=1 DEPTH=2 DEPTH=3 DEPTH=4 DEPTH=8
 
 T ?= $(TESTS)
-
-# Conjuntos de parâmetros do top do testbench (um -P por item).
-PARAMS_PipeFifo := DEPTH=1 DEPTH=2 DEPTH=3 DEPTH=4 DEPTH=8
 
 .PHONY: test test-unit test-integration lint clean $(TESTS)
 
@@ -35,8 +44,10 @@ $(TESTS): %: %_tb.sv $(RTL) | $(BUILD)
 	  echo "$$out" | grep -q PASS || { echo "$@ ($$p) FAIL"; exit 1; }; \
 	done
 
-# MULTITOP desligado: enquanto não há um módulo core que instancie os blocos,
-# cada bloco de rtl/ é um topo. Remover quando o core existir.
+# Every pipeline block is its own top module until a core top exists, so
+# MULTITOP ("you probably forgot --top-module") is expected here and is the
+# only warning silenced. Verilator still elaborates and lints EVERY top: a
+# defect in any block fails this target.
 lint:
 	verilator --lint-only -Wall -Wno-MULTITOP $(RTL)
 
