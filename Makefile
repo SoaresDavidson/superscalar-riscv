@@ -40,7 +40,7 @@ $(TESTS): %: %_tb.sv $(RTL) | $(BUILD)
 	@set -e; for p in $(or $(PARAMS_$@),none); do \
 	  flag=$$( [ $$p = none ] || echo "-P$@_tb.$$p" ); \
 	  iverilog -g2012 -Wall -s $@_tb $$flag -o $(BUILD)/$@.vvp $(RTL) $<; \
-	  out=$$(vvp -n $(BUILD)/$@.vvp 2>&1) || true; echo "$$out"; \
+	  out=$$(vvp -n $(BUILD)/$@.vvp); echo "$$out"; \
 	  echo "$$out" | grep -q PASS || { echo "$@ ($$p) FAIL"; exit 1; }; \
 	done
 
