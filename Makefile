@@ -7,13 +7,9 @@
 # sorted, because the order `find` returns is not stable. execute_pkg goes
 # before every other package, because the others import it (dispatch_pkg would
 # otherwise sort ahead of it).
-# PRUNE skips the librelane `runs/` directories (git-ignored): they hold
-# gate-level netlists, gigabytes of `.v` that would otherwise be compiled into
-# every test.
-PRUNE  := -name runs -prune -o
 BASE_PKG := rtl/execute/execute_pkg.sv
-PKGS   := $(BASE_PKG) $(filter-out $(BASE_PKG),$(shell find rtl $(PRUNE) -name '*_pkg.sv' -print | sort))
-MODS   := $(shell find rtl $(PRUNE) \( -name '*.sv' -o -name '*.v' \) ! -name '*_pkg.sv' -print | sort)
+PKGS   := $(BASE_PKG) $(filter-out $(BASE_PKG),$(shell find rtl -name '*_pkg.sv' | sort))
+MODS   := $(shell find rtl \( -name '*.sv' -o -name '*.v' \) ! -name '*_pkg.sv' | sort)
 RTL    := $(PKGS) $(MODS)
 SUITES := unit integration
 BUILD  := build
