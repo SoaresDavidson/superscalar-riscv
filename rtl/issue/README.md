@@ -55,6 +55,20 @@ Larguras derivadas: `CNT_W = $clog2(ENTRIES + 1)` (contagem de livres, de 0 a
 São os mesmos sinais das portas `wb_*` do `PRFRename`, que precisa ser
 instanciado com o mesmo `WB_N` (o padrão dele é 1).
 
+`WB_N` conta quem **escreve registrador**. O ROB (`retire_team`) tem outra
+contagem, de quem **termina instrução**: 4 portas de resposta, porque a AGU
+também responde a ele (é o que fecha um store). Ligação no `core`:
+
+| Origem | Barramento `wb[p]` (RS e `PRFRename`) | Resposta ao ROB |
+|---|---|---|
+| ALU | 0 | 0 |
+| Branch Unit | 1 | 1 |
+| AGU | — (não acorda ninguém) | 2 |
+| Load (LSU) | 2 | 3 |
+
+O `wb_valid[p]` é `resp_valid && wr_en`: um `beq` responde ao ROB, mas não
+anuncia tag.
+
 ### FU e portas de leitura do banco
 
 `rs_int` tem dois conjuntos, `alu_*` e `br_*`; `rs_mem` tem um, `agu_*`.
@@ -106,7 +120,8 @@ Ver `docs/rs/RS.md`, "Pontos em aberto". As que mudam esta interface:
 
 - **Organização e tamanhos** (item 0): proposta enviada ao grupo; falta o
   registro em `Decisoes-de-Projeto`.
-- **`age`** (item 1): chega em zero do dispatch; a seleção é pelo índice.
+- **Seleção pela mais antiga** (item 1): o `age` já chega do ROB pelo
+  dispatch; a seleção continua pelo índice.
 - **Flush seletivo** (item 3): exigiria uma entrada `flush_age`.
 - **Ordem na RS MEM** (item 4): hoje loads e stores saem pelo menor índice,
   sem respeitar a ordem do programa.
