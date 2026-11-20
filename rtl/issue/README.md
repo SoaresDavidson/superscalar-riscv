@@ -63,11 +63,15 @@ também responde a ele (é o que fecha um store). Ligação no `core`:
 |---|---|---|
 | ALU | 0 | 0 |
 | Branch Unit | 1 | 1 |
-| AGU | — (não acorda ninguém) | 2 |
+| AGU | — (não acorda ninguém) | 2, **só stores e exceções** |
 | Load (LSU) | 2 | 3 |
 
 O `wb_valid[p]` é `resp_valid && wr_en`: um `beq` responde ao ROB, mas não
-anuncia tag.
+anuncia tag. A AGU **não** responde ao ROB por um load sem exceção: o ROB
+marcaria o load como terminado antes de o dado voltar, e ele seria efetivado
+com o registrador ainda sem valor. O load termina pela porta 3, com o dado.
+O `tb/integration/backend_tb.sv` liga tudo assim e falha se a AGU responder
+pelos loads.
 
 ### FU e portas de leitura do banco
 
@@ -133,6 +137,7 @@ Ver `docs/rs/RS.md`, "Pontos em aberto". As que mudam esta interface:
 |---|---|---|
 | `tb/unit/rs_int_tb.sv` | R1 a R13 | 71 |
 | `tb/unit/rs_mem_tb.sv` | M1 a M13 | 68 |
+| `tb/integration/backend_tb.sv` | programa de 42 instruções do Decode ao commit, com ALU, AGU, Rename e ROB reais | fluxo de commit inteiro |
 
 Os dois cobrem reset, escrita e emissão com conferência dos campos, RS cheia,
 tempo do wakeup, anúncio no mesmo ciclo da escrita, seleção pelo menor índice,
