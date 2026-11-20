@@ -157,9 +157,10 @@ os campos de load e de store (M2, M3) e o store que espera o dado (M6).
 
 ## Síntese (sky130, 25 ns)
 
-Medida em 20/11 com o LibreLane 3.0.17, até a análise de tempo antes do
-posicionamento (`--to OpenROAD.STAPrePNR`), com o SDC genérico: 5 ns de
-atraso externo na entrada e 5 ns na saída. Configuração:
+Medida em 20/11 com o LibreLane 3.0.17, no fluxo completo (síntese,
+posicionamento, árvore de relógio e roteamento, até o GDS), com o SDC
+genérico: 5 ns de atraso externo na entrada e 5 ns na saída. Configuração do
+`rs_int` (a do `rs_mem` troca o nome e usa `DIE_AREA` 500 x 500):
 
 ```json
 {
@@ -170,16 +171,39 @@ atraso externo na entrada e 5 ns na saída. Configuração:
   "USE_SLANG": true,
   "CLOCK_PORT": "clk",
   "CLOCK_PERIOD": 25,
-  "SYNTH_ABC_BUFFERING": true
+  "SYNTH_ABC_BUFFERING": true,
+  "FP_SIZING": "absolute",
+  "DIE_AREA": [0, 0, 900, 900],
+  "PL_TARGET_DENSITY_PCT": 40,
+  "RUN_KLAYOUT_XOR": false
 }
 ```
 
-| Bloco | Células | Área | Pior folga (canto lento `ss_100C_1v60`) |
-|---|---|---|---|
-| `rs_int` | 11.353 | 135.213 µm² | +11,41 ns com `SYNTH_ABC_BUFFERING`; −11,92 ns sem |
-| `rs_mem` | 2.822 | 31.269 µm² | +7,44 ns sem `SYNTH_ABC_BUFFERING` |
+Folgas depois do roteamento (pior dos 9 cantos):
 
-As duas RS cabem em 25 ns. Os caminhos mais lentos:
+| Bloco | Células | Área das células | Bloco | Setup | Setup reg → reg | Hold | DRC, LVS, antena |
+|---|---|---|---|---|---|---|---|
+| `rs_int` | 11.353 | 135.213 µm² | 900 x 900 µm | +3,07 ns | +11,46 ns | +0,13 ns | passam |
+| `rs_mem` | 2.822 | 31.269 µm² | 500 x 500 µm | +10,45 ns | — | +0,13 ns | passam |
+
+As duas RS fecham o tempo em 25 ns em todos os cantos. No `rs_int`, a lógica
+interna (registrador a registrador) leva cerca de 13 ns no canto lento; o
+pior caminho geral, com só +3,07 ns de folga, começa ou termina num pino:
+são os fios até a borda de um bloco de 900 µm com ~1.700 pinos, que no
+`core` ficam curtos. O hold fecha graças às células de atraso
+(`dlygate4sd3`) que o reparo insere nos caminhos curtos.
+
+Sobram avisos, sem violação de tempo:
+
+- **Slew**, nos cantos lentos (7.653 no `rs_int`, 1.130 no `rs_mem`) e
+  quase nenhum no típico.
+- **Capacitância**, só no `rs_int` (23 a 44 redes em todos os cantos, até
+  40% acima do limite de 0,2 pF). São quase todas saídas de buffers que o
+  próprio reparo inseriu em fios longos (`wire*`, `max_cap*`): o efeito do
+  tamanho do bloco isolado, não do RTL.
+
+Caminhos mais lentos antes do posicionamento, que mostram onde está o custo
+da lógica:
 
 - **`rs_int`:** `op` de uma entrada → `fu_of(op) == FU_BRANCH` (~2,8 ns) →
   seletor da Branch Unit → índice `br_idx` → multiplexador que copia a
@@ -189,9 +213,10 @@ As duas RS cabem em 25 ns. Os caminhos mais lentos:
 
 **Ligar `SYNTH_ABC_BUFFERING`.** Sem ele, a síntese não põe buffers, e o
 sinal de escolha do multiplexador da `rs_int` alimenta 449 entradas com uma
-porta só: 21,7 ns nessa porta, e o bloco estoura o ciclo em 12 ns no canto
-lento. Com buffers, as violações de setup somem e as de slew caem de 13.476
-para 55. Vale para qualquer bloco com seletores ou multiplexadores largos.
+porta só: 21,7 ns nessa porta, e a análise antes do posicionamento acusa
+o bloco estourando o ciclo em 12 ns no canto lento, o que não é real. Com
+buffers, as violações de setup somem. Vale para qualquer bloco com
+seletores ou multiplexadores largos.
 
 **Otimizações possíveis**, se o ciclo apertar (nenhuma é necessária hoje):
 
