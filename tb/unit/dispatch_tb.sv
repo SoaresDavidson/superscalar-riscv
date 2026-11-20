@@ -19,10 +19,9 @@ module dispatch_tb;
   import dispatch_pkg::*;
 
   localparam int W              = 3;
-  localparam int ROB_ENTRIES    = 32;
+  localparam int ROB_ENTRIES    = 48;
   localparam int RS_INT_ENTRIES = 8;
   localparam int RS_MEM_ENTRIES = 4;
-  localparam int ROB_IDX_W = $clog2(ROB_ENTRIES);
   localparam int ROB_CNT_W = $clog2(ROB_ENTRIES + 1);
   localparam int INT_CNT_W = $clog2(RS_INT_ENTRIES + 1);
   localparam int MEM_CNT_W = $clog2(RS_MEM_ENTRIES + 1);
@@ -46,9 +45,10 @@ module dispatch_tb;
   logic [W-1:0][TAG_W-1:0]  ren_src1_tag, ren_src2_tag, ren_dst_tag, ren_old_tag;
 
   logic [ROB_CNT_W-1:0]     rob_free;
-  logic [ROB_IDX_W-1:0]     rob_tail;
+  age_t [W-1:0]             rob_age;
   logic [W-1:0]             rob_alloc;
   rob_entry_t [W-1:0]       rob_entry;
+  uop_t [W-1:0]             rob_uop;
 
   logic [INT_CNT_W-1:0]     int_free;
   logic [W-1:0]             int_wr;
@@ -196,7 +196,8 @@ module dispatch_tb;
     flush              = 1'b0;
     dec_valid          = 1'b1;
     rob_free           = ROB_CNT_W'(ROB_ENTRIES);
-    rob_tail           = '0;
+    for (int k = 0; k < W; k++)
+      rob_age[k] = AGE_W'(8'h60 + 2 * k);  // as the ROB gives them: distinct per slot
     int_free           = INT_CNT_W'(RS_INT_ENTRIES);
     mem_free           = MEM_CNT_W'(RS_MEM_ENTRIES);
     ren_dispatch_ready = 1'b1;
@@ -369,8 +370,10 @@ module dispatch_tb;
     chk(ei.pc === 64'h1004,           "add: pc copied from uop");
     chk(ei.dst_tag === TAG_W'(41),    "add: dst_tag from Rename");
     chk(ei.wr_en === 1'b1,            "add: writes rd");
+    chk(ei.age === AGE_W'(8'h62),     "add: age = rob_age of slot 1");
     ei = int_at(0);
     chk(ei.op === BR_BEQ,             "beq: op copied from uop");
+    chk(ei.age === AGE_W'(8'h60),     "beq: age = rob_age of slot 0");
     chk(ei.wr_en === 1'b0,            "beq: writes no register");
 
     // C3: RS MEM entry of the lw in slot 2. The base (src1) is waiting; the
@@ -393,6 +396,7 @@ module dispatch_tb;
     chk(em.imm === 64'd8,             "lw: imm copied from uop");
     chk(em.dst_tag === TAG_W'(42),    "lw: dst_tag from Rename");
     chk(em.wr_en === 1'b1,            "lw: writes rd");
+    chk(em.age === AGE_W'(8'h64),     "lw: age = rob_age of slot 2");
 
     // C4: ROB entries. FU_NONE slots enter already done, with their flag;
     // a normal instruction carries what commit needs.
@@ -420,6 +424,7 @@ module dispatch_tb;
     chk(er.rd === 5'd5,               "add: architectural rd");
     chk(er.dst_tag === TAG_W'(42),    "add: dst_tag (slot 2) from Rename");
     chk(er.old_tag === TAG_W'(52),    "add: old_tag (slot 2), freed at commit");
+    chk(rob_uop === dec_uop,          "rob_uop repeats the bundle for the ROB");
 
     $display("PASS dispatch_tb (%0d checks)", checks);
     $finish;

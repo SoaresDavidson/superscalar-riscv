@@ -55,6 +55,24 @@ Larguras derivadas: `CNT_W = $clog2(ENTRIES + 1)` (contagem de livres, de 0 a
 São os mesmos sinais das portas `wb_*` do `PRFRename`, que precisa ser
 instanciado com o mesmo `WB_N` (o padrão dele é 1).
 
+`WB_N` conta quem **escreve registrador**. O ROB (`retire_team`) tem outra
+contagem, de quem **termina instrução**: 4 portas de resposta, porque a AGU
+também responde a ele (é o que fecha um store). Ligação no `core`:
+
+| Origem | Barramento `wb[p]` (RS e `PRFRename`) | Resposta ao ROB |
+|---|---|---|
+| ALU | 0 | 0 |
+| Branch Unit | 1 | 1 |
+| AGU | — (não acorda ninguém) | 2, **só stores e exceções** |
+| Load (LSU) | 2 | 3 |
+
+O `wb_valid[p]` é `resp_valid && wr_en`: um `beq` responde ao ROB, mas não
+anuncia tag. A AGU **não** responde ao ROB por um load sem exceção: o ROB
+marcaria o load como terminado antes de o dado voltar, e ele seria efetivado
+com o registrador ainda sem valor. O load termina pela porta 3, com o dado.
+O `tb/integration/backend_tb.sv` liga tudo assim e falha se a AGU responder
+pelos loads.
+
 ### FU e portas de leitura do banco
 
 `rs_int` tem dois conjuntos, `alu_*` e `br_*`; `rs_mem` tem um, `agu_*`.
@@ -106,7 +124,8 @@ Ver `docs/rs/RS.md`, "Pontos em aberto". As que mudam esta interface:
 
 - **Organização e tamanhos** (item 0): proposta enviada ao grupo; falta o
   registro em `Decisoes-de-Projeto`.
-- **`age`** (item 1): chega em zero do dispatch; a seleção é pelo índice.
+- **Seleção pela mais antiga** (item 1): o `age` já chega do ROB pelo
+  dispatch; a seleção continua pelo índice.
 - **Flush seletivo** (item 3): exigiria uma entrada `flush_age`.
 - **Ordem na RS MEM** (item 4): hoje loads e stores saem pelo menor índice,
   sem respeitar a ordem do programa.
@@ -118,6 +137,7 @@ Ver `docs/rs/RS.md`, "Pontos em aberto". As que mudam esta interface:
 |---|---|---|
 | `tb/unit/rs_int_tb.sv` | R1 a R13 | 71 |
 | `tb/unit/rs_mem_tb.sv` | M1 a M13 | 68 |
+| `tb/integration/backend_tb.sv` | programa de 42 instruções do Decode ao commit, com ALU, AGU, Rename e ROB reais | fluxo de commit inteiro |
 
 Os dois cobrem reset, escrita e emissão com conferência dos campos, RS cheia,
 tempo do wakeup, anúncio no mesmo ciclo da escrita, seleção pelo menor índice,
