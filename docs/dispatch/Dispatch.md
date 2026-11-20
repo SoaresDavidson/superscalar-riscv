@@ -15,7 +15,7 @@ na estação de reserva (RS). Há duas RS: a INT (ALU e desvio) e a MEM
 |---|---|---|
 | Decode | `uop_t[W]`, máscaras `out_dep_rs1`, `out_dep_rs2`, `out_dep_rd` | `out_ready` |
 | Rename (`PRFRename`) | `dispatch_ready`, `dst_tag`, `old_tag`, tags e prontos das fontes | `rs1`, `rs2`, `rd`, `writes_rd`, as três máscaras, `rob_ready`, `rs_ready` |
-| ROB | entradas livres, índices | uma entrada por instrução |
+| ROB (`retire_team`) | entradas livres, `age` de cada slot (`rob_age`) | uma entrada por instrução, e o `uop_t` do bundle (`rob_uop`) |
 | RS INT e RS MEM | entradas livres | instrução a emitir |
 
 As máscaras de dependência do Decode já estão no formato do `PRFRename`
@@ -112,11 +112,14 @@ físico na emissão (`docs/rs/RS.md`).
 1. ~~**Espaço nas RS no aceite do Rename.**~~ **Resolvido (13/11):** o
    `PRFRename` ganhou a entrada `rs_ready` (branch `davi#rename`), e o
    dispatch liga ali o `rs_ok`.
-2. **Interface do ROB.** O módulo ainda não existe. O dispatch precisa saber
-   quantas entradas estão livres e quais índices o bundle recebe.
-3. **Identificação da instrução (`age`).** O `execute_pkg` usa `age_t` de 8
-   bits (questão em aberto 2 dele). Se for o índice do ROB, quem atribui é o
-   dispatch, e o ROB pode ter no máximo 128 entradas.
+2. ~~**Interface do ROB.**~~ **Resolvido (20/11):** o ROB é o `retire_team`
+   (PR #18). O dispatch liga `rob_free`, `rob_alloc`, `rob_entry` e
+   `rob_uop`; o ROB aloca uma linha de `W` vias por bundle (`rob_free` vale
+   `W` ou 0), e o slot `k` vai para a via `k`.
+3. ~~**Identificação da instrução (`age`).**~~ **Resolvido (20/11):** o
+   `age` vem do ROB, pela saída `rob_age[W]`, e o dispatch o copia nas
+   entradas das RS. Fica a confirmar pelo grupo, junto com os outros pedidos
+   do PR #18.
 
 **Conteúdo da entrada na RS**
 
@@ -131,6 +134,19 @@ físico na emissão (`docs/rs/RS.md`).
 6. **Modelo de flush.** O Execute faz flush seletivo na execução; o
    `PRFRename` só se recupera no commit. Define o que o dispatch e as RS
    descartam, e quando.
+
+**ROB**
+
+8. **Tipo da instrução de sistema (`rob_sys_kind`).** O `retire_team` pede,
+   por slot, 3 bits dizendo se é `ecall`, `ebreak`, `mret`, `fence`,
+   `fence.i` ou CSR. O `uop_t` não tem essa informação; o pedido do Carlos é
+   um campo `sys_kind` no `uop_t`, o que muda o contrato Decode–Execute
+   (Matheus). Até lá, a entrada fica em 0 no `core`.
+9. **`rob_uop` inteiro ou só o necessário.** O `retire_team` só usa do
+   `uop_t` o `op`, para separar load de store (`is_load`). Repassar o
+   `uop_t` inteiro são 3 x 158 fios; a alternativa é um bit `is_load` (e o
+   `sys_kind`) no `rob_entry_t`, o que muda o adaptador do Carlos. Hoje: o
+   `uop_t` inteiro, que não exige mudança do lado do ROB.
 
 **Memória**
 
