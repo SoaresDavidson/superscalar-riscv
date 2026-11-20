@@ -107,16 +107,21 @@ físico na emissão (`docs/rs/RS.md`).
 
 ## Síntese (sky130, 25 ns)
 
-Medida em 19/11 com o LibreLane 3.0.17 (`USE_SLANG`, relógio de 25 ns, SDC
-genérico com 5 ns de atraso externo na entrada e na saída), até a análise
-de tempo antes do posicionamento:
+Medida em 20/11 com o LibreLane 3.0.17, no fluxo completo (síntese,
+posicionamento e roteamento, até o GDS), com `USE_SLANG`,
+`SYNTH_ABC_BUFFERING`, relógio de 25 ns e o SDC genérico (5 ns de atraso
+externo na entrada e na saída). Bloco de 600 x 600 µm (`DIE_AREA`), por
+causa dos ~1.900 pinos.
 
-| Células | Área | Pior folga (canto lento `ss_100C_1v60`) |
-|---|---|---|
-| 1.371 | 6.858 µm² | +8,47 ns |
+| Células | Área das células | Setup (pior canto) | Hold | DRC, LVS, antena |
+|---|---|---|---|---|
+| 1.413 | 7.083 µm² | +7,27 ns (`max_ss_100C_1v60`) | +10,08 ns | passam |
 
-O dispatch é combinacional: só há caminhos de entrada para saída. O mais
-lento atravessa 8 portas (~6,2 ns no canto lento):
+O dispatch é combinacional: só há caminhos de entrada para saída (não há
+árvore de relógio nem caminhos entre registradores). Dos 15 ns que sobram
+entre os atrasos externos, ele usa cerca de 7,5 ns no pior canto, contando
+os fios até os pinos. Antes do posicionamento, o caminho mais lento
+atravessava 8 portas:
 
 ```
 op do slot 1 → fu_of(op) → to_mem → n_mem → mem_free >= n_mem → rs_ok → accept → mem_wr[1]
@@ -125,9 +130,8 @@ op do slot 1 → fu_of(op) → to_mem → n_mem → mem_free >= n_mem → rs_ok 
 É o custo do tudo ou nada: o `accept` depende da contagem de todos os slots
 e alimenta todas as máscaras. No `core`, o caminho que vai pesar é a soma
 Rename + Dispatch, porque o `ren_dispatch_ready` também entra no
-`dec_ready`. Isolado no fluxo completo (até o GDS), o bloco ocupa 600 x 600
-µm por causa dos ~1.900 pinos: dentro do `core` esses sinais viram fios
-internos.
+`dec_ready`. Sobram avisos de slew nos cantos lentos (até 131), dos fios
+até os pinos na borda; dentro do `core`, esses sinais viram fios internos.
 
 ## Pontos em aberto
 
