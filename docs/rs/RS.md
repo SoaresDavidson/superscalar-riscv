@@ -155,6 +155,56 @@ os campos de load e de store (M2, M3) e o store que espera o dado (M6).
 9. Reuso de tag depois do flush: um anúncio antigo não pode acordar uma
    entrada nova.
 
+## Síntese (sky130, 25 ns)
+
+Medida em 20/11 com o LibreLane 3.0.17, até a análise de tempo antes do
+posicionamento (`--to OpenROAD.STAPrePNR`), com o SDC genérico: 5 ns de
+atraso externo na entrada e 5 ns na saída. Configuração:
+
+```json
+{
+  "DESIGN_NAME": "rs_int",
+  "VERILOG_FILES": ["dir::../../rtl/execute/execute_pkg.sv",
+                    "dir::../../rtl/dispatch/dispatch_pkg.sv",
+                    "dir::../../rtl/issue/rs_int.sv"],
+  "USE_SLANG": true,
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 25,
+  "SYNTH_ABC_BUFFERING": true
+}
+```
+
+| Bloco | Células | Área | Pior folga (canto lento `ss_100C_1v60`) |
+|---|---|---|---|
+| `rs_int` | 11.353 | 135.213 µm² | +11,41 ns com `SYNTH_ABC_BUFFERING`; −11,92 ns sem |
+| `rs_mem` | 2.822 | 31.269 µm² | +7,44 ns sem `SYNTH_ABC_BUFFERING` |
+
+As duas RS cabem em 25 ns. Os caminhos mais lentos:
+
+- **`rs_int`:** `op` de uma entrada → `fu_of(op) == FU_BRANCH` (~2,8 ns) →
+  seletor da Branch Unit → índice `br_idx` → multiplexador que copia a
+  entrada inteira (`sb = q[br_idx]`) → `br_read_tag`.
+- **`rs_mem`:** `wr` → alocação → `incoming[i] = wr_entry[alloc_slot[i]]` →
+  wakeup da entrada que chega (`wake(incoming[i])`, ~2,3 ns) → bit de pronto.
+
+**Ligar `SYNTH_ABC_BUFFERING`.** Sem ele, a síntese não põe buffers, e o
+sinal de escolha do multiplexador da `rs_int` alimenta 449 entradas com uma
+porta só: 21,7 ns nessa porta, e o bloco estoura o ciclo em 12 ns no canto
+lento. Com buffers, as violações de setup somem e as de slew caem de 13.476
+para 55. Vale para qualquer bloco com seletores ou multiplexadores largos.
+
+**Otimizações possíveis**, se o ciclo apertar (nenhuma é necessária hoje):
+
+1. Gravar na entrada um bit com a FU (`is_branch`), calculado no dispatch,
+   em vez de decodificar o `op` a cada ciclo: tira ~2,8 ns do caminho da
+   `rs_int`.
+2. Separar o caminho das tags de leitura (12 bits) do multiplexador da
+   entrada inteira (231 bits): a leitura do banco, que vem logo depois no
+   `core`, começa mais cedo.
+3. Tirar o wakeup da entrada que chega (o caso do item 2 de "Wakeup"), que é
+   redundante enquanto o `PRFRename` faz o bypass do write-back: tira ~2,3 ns
+   do caminho da `rs_mem`.
+
 ## Pontos em aberto
 
 0. **Organização e tamanho das RS.** Proposta: RS INT (8 entradas, ALU e
