@@ -1,0 +1,13 @@
+{
+  "DESIGN_NAME": "PRFRename",
+  "VERILOG_FILES": [
+    "dir::PRFRename.sv"
+  ],
+  "CLOCK_PERIOD": 25,
+  "CLOCK_PORT": "clk",
+  "FP_CORE_UTIL": 30,
+  "PL_TARGET_DENSITY_PCT": 40,
+  "RUN_ANTENNA_REPAIR": false,
+  "RUN_HEURISTIC_DIODE_INSERTION": true,
+  "GRT_ADJUSTMENT": 0.25
+}

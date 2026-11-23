@@ -57,22 +57,35 @@ Exemplo: criar `tb/unit/rob_tb.sv` com `module rob_tb;` já faz
 
 ### Docker
 
-use docker para não precisar instalar as dependências. O Makefile detecta se está rodando dentro de um container e ajusta os caminhos de montagem. Para rodar o Makefile dentro do container, rode:
+Para não instalar as ferramentas na máquina, use a imagem do `Dockerfile`, que
+traz Icarus Verilog, Verilator e make. Construa uma vez:
 
 ```sh
 docker build -t superscalar-riscv .
 ```
 
-depois disso, rode o container com o diretório atual montado em `/workdir`:
+e rode os alvos do Makefile com o repositório montado em `/work`:
 
 ```sh
-docker run --rm -it -v $(pwd):/workdir superscalar-riscv
+docker run --rm -v "$PWD":/work superscalar-riscv            # make test
+docker run --rm -v "$PWD":/work superscalar-riscv make lint
+docker run --rm -it -v "$PWD":/work superscalar-riscv bash   # shell no container
 ```
 
-esse comando abre um shell dentro do container, com o diretório atual montado em `/workdir`. A partir daí, você pode rodar os comandos do Makefile normalmente, como `make test` ou `make lint`.
-exemplo de uso:
+### Síntese física (LibreLane)
+
+`make pnr` roda o LibreLane 3.0.17 dentro da imagem oficial
+(`Dockerfile.pnr`). A máquina precisa só de docker e de um PDK baixado pelo
+Ciel em `~/.ciel` (outro caminho: `make pnr PDK_ROOT=/caminho`).
+
+Enquanto não há um topo do core, `make pnr` sem argumentos roda o exemplo
+`spm` do LibreLane em `build/spm`, só para conferir que o flow e o PDK
+funcionam. Para rodar o flow de um bloco, passe a config dele, com caminho a
+partir da raiz do repositório:
 
 ```sh
-docker run --rm -it -v $(pwd):/workdir superscalar-riscv make test #roda todos os testes
-docker run --rm -it -v $(pwd):/workdir superscalar-riscv make lint #roda o verificador de lint
+make pnr                                     # exemplo spm
+make pnr PNR_CONFIG=rtl/rename/config.json   # bloco de rename
 ```
+
+Os resultados ficam em `runs/`, ao lado da config.

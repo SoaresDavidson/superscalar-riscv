@@ -4,4 +4,3 @@ docsDecode/
 # Caso o wiki seja clonado DENTRO do repo; neste setup ele e irmao (../).
 superscalar-riscv.wiki/
 runs/
-.venv
