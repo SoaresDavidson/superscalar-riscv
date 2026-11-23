@@ -15,12 +15,12 @@ Tipos das entradas: [`dispatch_pkg.sv`](dispatch_pkg.sv). Tipos compartilhados
 | Parâmetro | Padrão | Significado |
 |---|---|---|
 | `W` | 3 | largura do bundle (decisão 2) |
-| `ROB_ENTRIES` | 32 | tamanho do ROB; no máximo 128 enquanto `age` for o índice do ROB (`AGE_W = 8`) |
+| `ROB_ENTRIES` | 48 | tamanho do ROB (`retire_team`: 16 linhas x 3 vias); só define a largura de `rob_free` |
 | `RS_INT_ENTRIES` | 8 | entradas da RS INT |
 | `RS_MEM_ENTRIES` | 4 | entradas da RS MEM |
 
-Larguras derivadas: `ROB_IDX_W = $clog2(ROB_ENTRIES)` (índice) e
-`*_CNT_W = $clog2(N + 1)` (contagem de livres, de 0 a `N`). `XLEN` e `TAG_W` vêm
+Larguras derivadas: `*_CNT_W = $clog2(N + 1)` (contagem de livres, de 0 a
+`N`). `XLEN` e `TAG_W` vêm
 do `execute_pkg`, não são parâmetros.
 
 ## Portas
@@ -72,10 +72,16 @@ realmente entra: nenhuma tag vaza quando o ROB ou uma RS está cheio. As portas
 
 | Porta | Dir. | Significado |
 |---|---|---|
-| `rob_free` | entrada | entradas livres (0 a `ROB_ENTRIES`) |
-| `rob_tail` | entrada | índice da próxima entrada livre (ainda não usado; ver pendências) |
-| `rob_alloc[W]` | saída | o slot `k` aloca uma entrada, em ordem a partir do `tail` |
+| `rob_free` | entrada | entradas livres; o `retire_team` dá `W` (linha livre) ou 0 |
+| `rob_age[W]` | entrada | `age` da entrada que o slot `k` ocupa; vai para o campo `age` das RS |
+| `rob_alloc[W]` | saída | o slot `k` ocupa a via `k` da linha alocada |
 | `rob_entry[W]` | saída | `rob_entry_t` do slot: `pc`, `rd`, `has_dest`, `dst_tag`, `old_tag`, `done`, `illegal`, `serializing` |
+| `rob_uop[W]` | saída | o `uop_t` do bundle, repetido; o `retire_team` lê o `op` para separar load de store |
+
+Ligação com o `retire_team` (`rtl/retire/`): portas de mesmo nome. A entrada
+`rob_sys_kind` do `retire_team` ainda não tem quem a produza (ver
+pendências); no `core`, fica em 0 até a decisão. O ROB guarda um `pc` por
+linha, o do slot 0, e supõe slots consecutivos (`pc + 4`, `pc + 8`).
 
 ### Estações de reserva
 
@@ -125,18 +131,19 @@ Garantias para os vizinhos:
 Ver `docs/dispatch/Dispatch.md`, "Pontos em aberto". As que mudam esta
 interface:
 
-- **`age`** (item 3) sai em zero nas entradas das RS; `rob_tail` fica sem uso
-  até a decisão.
+- **`rob_sys_kind`** (item 8): o tipo da instrução de sistema que o
+  `retire_team` pede não existe no `uop_t`.
 - **`pred_taken` / `pred_target`** (item 5) saem em zero: o `uop_t` não traz
   a predição.
 
 ## Teste
 
-`tb/unit/dispatch_tb.sv`, com `W = 3` (114 verificações):
+`tb/unit/dispatch_tb.sv`, com `W = 3` (118 verificações):
 
 - **T1 a T5, roteamento:** cada tipo de instrução em posições diferentes,
   `FU_NONE`, três instruções na mesma RS e slots inválidos com `op` de lixo.
 - **A1 a A8, aceite** (dirigido por tabela, `accept_case`): falta de ROB, de
   RS INT, de RS MEM ou de tags; encaixe exato; Decode sem bundle; flush.
 - **C1 a C4, conteúdo:** consultas ao Rename (`x0` e lixo em `rs2`), campos
-  das entradas da RS INT e da RS MEM, e da entrada do ROB.
+  das entradas da RS INT e da RS MEM (com o `age` de cada slot), da entrada do
+  ROB e do `rob_uop`.

@@ -96,8 +96,8 @@ acontecem na borda do relógio.
 - Uma entrada está **pronta** quando `busy && src1_ready && src2_ready`, com os
   bits de pronto do começo do ciclo. Uma fonte que acorda num ciclo só pode
   ser emitida no ciclo seguinte.
-- Política: entre as prontas, a de **menor índice**. Quando houver `age`, passa
-  a ser a **mais antiga** (item 3).
+- Política: entre as prontas, a de **menor índice**. As entradas já chegam com
+  o `age` do ROB; trocar para a **mais antiga** é o item 1.
 - O seletor só emite se a FU estiver livre (`req_ready = 1`). Na transferência,
   a entrada volta a `busy = 0`.
 - **Leitura dos operandos:** no ciclo da emissão, as tags das fontes da
@@ -238,9 +238,11 @@ seletores ou multiplexadores largos.
    wiki isso segue em aberto (Home e decisão 15): precisa de aprovação do
    grupo e de um registro em `Decisoes-de-Projeto`. O `rs_int` não depende
    do tamanho (parâmetro `ENTRIES`).
-1. **`age` e seleção pela mais antiga** (item 3 do `Dispatch.md`). Sem o
-   `age`, a seleção é pela posição na RS, e uma instrução antiga numa entrada
-   de índice alto pode esperar mais do que devia.
+1. **Seleção pela mais antiga.** O `age` agora chega do ROB (`rob_age`,
+   item 3 do `Dispatch.md`, resolvido), então a seleção pode deixar de ser
+   pela posição na RS. Falta decidir se vale o custo: comparar idades
+   (`age_is_younger`) entre as prontas é mais lento que achar o menor
+   índice.
 2. ~~**RS com valores ou só tags**~~ **Resolvido: só tags** (decisão 16 da
    wiki). A decisão 16 deixa em aberto `READ_N` e o ciclo da leitura; a
    proposta desta RS é `READ_N` = 6 (2 por FU), lidas no mesmo ciclo da

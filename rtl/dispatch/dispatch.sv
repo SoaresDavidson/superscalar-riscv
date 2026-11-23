@@ -3,21 +3,20 @@
 // every valid slot.
 // Spec: docs/dispatch/Dispatch.md.
 //
-// STATUS: complete for this version. Pending (Dispatch.md, open items): age
-// (item 3), prediction fields (item 5). The RS hold tags only (decision 16).
+// STATUS: complete for this version. Pending (Dispatch.md, open items):
+// prediction fields (item 5) and rob_sys_kind (item 8). The RS hold tags only
+// (decision 16). The age of each slot comes from the ROB (rob_age).
 // Unused on purpose: clk and reset (Dispatch is combinational; every block
-// takes them), rob_tail (waits for the age decision, open item 3), and the
-// uop fields each entry builder does not need.
+// takes them), and the uop fields each entry builder does not need.
 /* verilator lint_off UNUSEDSIGNAL */
 module dispatch
   import execute_pkg::*;
   import dispatch_pkg::*;
 #(
     parameter  int W              = 3,   // bundle width (decision 2)
-    parameter  int ROB_ENTRIES    = 32,  // proposal; at most 2**(AGE_W-1) = 128
+    parameter  int ROB_ENTRIES    = 48,  // retire_team: 16 rows x 3 lanes
     parameter  int RS_INT_ENTRIES = 8,
     parameter  int RS_MEM_ENTRIES = 4,
-    localparam int ROB_IDX_W = $clog2(ROB_ENTRIES),       // index: 0..ROB_ENTRIES-1
     localparam int ROB_CNT_W = $clog2(ROB_ENTRIES + 1),   // count: 0..ROB_ENTRIES
     localparam int INT_CNT_W = $clog2(RS_INT_ENTRIES + 1),
     localparam int MEM_CNT_W = $clog2(RS_MEM_ENTRIES + 1)
@@ -50,9 +49,10 @@ module dispatch
 
     // ROB
     input  logic [ROB_CNT_W-1:0]     rob_free,
-    input  logic [ROB_IDX_W-1:0]     rob_tail,         // index of the next free entry
+    input  age_t [W-1:0]             rob_age,          // age of the entry slot k would take
     output logic [W-1:0]             rob_alloc,
     output rob_entry_t [W-1:0]       rob_entry,
+    output uop_t [W-1:0]             rob_uop,          // retire_team reads the op (load/store)
 
     // RS INT
     input  logic [INT_CNT_W-1:0]     int_free,
@@ -70,9 +70,9 @@ module dispatch
   // ---------------------------------------------------------------------------
   function automatic rs_int_entry_t make_int_entry(
       uop_t u, logic [1:0] rdy,
-      tag_t t1, tag_t t2, tag_t dst);
+      tag_t t1, tag_t t2, tag_t dst, age_t age);
     rs_int_entry_t e;
-    e             = '0;          // age, pred_taken, pred_target: open items 3, 5
+    e             = '0;          // pred_taken, pred_target: open item 5
     e.busy        = 1'b1;
     e.src1_ready  = rdy[0];      // rdy[0] = source 1, rdy[1] = source 2
     e.src1_tag    = t1;
@@ -84,12 +84,13 @@ module dispatch
     e.pc          = u.pc;
     e.dst_tag     = dst;
     e.wr_en       = u.has_dest;
+    e.age         = age;
     return e;
   endfunction
 
   function automatic rs_mem_entry_t make_mem_entry(
       uop_t u, logic [1:0] rdy,
-      tag_t t1, tag_t t2, tag_t dst);
+      tag_t t1, tag_t t2, tag_t dst, age_t age);
     rs_mem_entry_t e;
     e             = '0;
     e.busy        = 1'b1;
@@ -101,7 +102,7 @@ module dispatch
     e.imm         = u.imm;
     e.dst_tag     = dst;
     e.wr_en       = u.has_dest;
-    e.age         = '0;          // open item 3
+    e.age         = age;
     return e;
   endfunction
 
@@ -144,16 +145,17 @@ function automatic rob_entry_t make_rob_entry(
 
     assign int_entry[k] = make_int_entry(u, ren_src_ready[k],
                                          ren_src1_tag[k], ren_src2_tag[k],
-                                         ren_dst_tag[k]);
+                                         ren_dst_tag[k], rob_age[k]);
 
     assign mem_entry[k] = make_mem_entry(u, ren_src_ready[k],
                                          ren_src1_tag[k], ren_src2_tag[k],
-                                         ren_dst_tag[k]);
+                                         ren_dst_tag[k], rob_age[k]);
 
     assign rob_entry[k] = make_rob_entry(u, ren_dst_tag[k], ren_old_tag[k], fu);
 
   end
 
+  assign rob_uop            = dec_uop;
   assign ren_slot_valid     = slot_v;
   assign ren_dispatch_valid = dec_valid && !flush;   
 
