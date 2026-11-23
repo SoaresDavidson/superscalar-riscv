@@ -125,6 +125,7 @@ Calcula `endereço = src1 + imm` e sinaliza exceção de desalinhamento. O acess
 - **Alinhamento** conforme o tamanho do acesso (vindo do `op`): byte sempre alinhado; half exige `addr[0]=0`; word exige `addr[1:0]=0`; double exige `addr[2:0]=0`.
 - **Exceção**: `exception=1` com `cause = CAUSE_LOAD_MISALIGNED` (loads) ou `CAUSE_STORE_MISALIGNED` (stores) quando desalinhado.
 - **`wr_en`**: repassado. Loads escrevem `rd` (valor vem depois, do Memory); stores chegam com `wr_en=0`.
+- **`resp_is_load`** (saída a mais que a ALU): 1 quando a resposta é de um load (`is_load(op)`), registrado junto com `resp` e válido com `resp_valid`. O `wr_en` não serve para isso, porque um load para `x0` também tem `wr_en=0`. O `completion` usa o sinal para responder ao ROB pela porta da AGU só em stores e exceções (Completion.md, ponto 1, opção A).
 - **Pendente**: o dado do store (`src2`) até o Memory ainda não tem caminho definido.
 
 ### Operações
@@ -133,4 +134,4 @@ Calcula `endereço = src1 + imm` e sinaliza exceção de desalinhamento. O acess
 
 ### Teste
 
-`make test T=agu`. Casos: aritmética do endereço (offset positivo e negativo), alinhamento por tamanho, causa load vs store, desalinhamento vindo de `base+imm`, back-pressure, flush com mais antigo (sobrevive) e mais novo (morre), e 200 operações aleatórias contra modelo com back-pressure.
+`make test T=agu`. O monitor confere também o `resp_is_load` de cada resposta. Casos: aritmética do endereço (offset positivo e negativo), alinhamento por tamanho, causa load vs store, desalinhamento vindo de `base+imm`, back-pressure, flush com mais antigo (sobrevive) e mais novo (morre), e 200 operações aleatórias contra modelo com back-pressure.

@@ -8,6 +8,9 @@
 // result carries the effective address. For a load, wr_en/dst_tag are passed
 // through (the loaded value is written later, by Memory). For a store, wr_en
 // arrives as 0. The store DATA path to Memory is a separate open item.
+// resp_is_load tells a load from a store or an exception-free access apart:
+// wr_en cannot (a load to x0 has wr_en = 0, like a store). Completion uses it
+// to answer the ROB on the AGU port only for stores and exceptions.
 module agu
   import execute_pkg::*;
 (
@@ -22,7 +25,8 @@ module agu
 
   output logic     resp_valid,
   input  logic     resp_ready,
-  output fu_resp_t resp
+  output fu_resp_t resp,
+  output logic     resp_is_load   // resp is a load (valid with resp_valid)
 );
 
   // operand selection (continuous: no struct member select in always_comb)
@@ -79,12 +83,14 @@ module agu
   // output register + handshake + selective flush (same pattern as the ALU)
   logic     valid_q;
   fu_resp_t resp_q;
+  logic     is_load_q;
   logic     kill_held;
   logic     accept;
 
   assign kill_held  = flush && valid_q && age_is_younger(resp_q.age, flush_age);
   assign resp_valid = valid_q && !kill_held;
   assign resp       = resp_q;
+  assign resp_is_load = is_load_q;
   assign req_ready  = !resp_valid || resp_ready;
   assign accept     = req_valid && req_ready &&
                       !(flush && age_is_younger(req.age, flush_age));
@@ -100,6 +106,7 @@ module agu
       resp_q.age       <= req.age;
       resp_q.exception <= misaligned;
       resp_q.cause     <= cause;
+      is_load_q        <= is_load(op);
     end else if (req_ready) begin
       valid_q <= 1'b0;
     end
