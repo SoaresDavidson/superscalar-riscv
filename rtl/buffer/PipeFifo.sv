@@ -8,6 +8,8 @@
 // - out_data é a entrada mais antiga (first-word-fall-through): válida assim
 //   que out_valid sobe, estável enquanto out_valid && !out_ready.
 // - flush esvazia a FIFO e tem precedência sobre o handshake dos dois lados.
+//   No ciclo do flush out_valid já cai: a FIFO só zera na borda, e sem isso o
+//   consumidor aceitaria uma entrada do caminho errado.
 //   PROVISÓRIO: descarte total no flush. A estratégia de recuperação de
 //   desvios (global no retire ou seletiva por tag) ainda não foi decidida; se
 //   for seletiva, cada entrada ganha a máscara do desvio e o flush passa a
@@ -37,7 +39,7 @@ module PipeFifo #(
 
     logic push, pop;
     assign in_ready  = (count != CNT_W'(DEPTH));
-    assign out_valid = (count != '0);
+    assign out_valid = (count != '0) && !flush;
     assign out_data  = mem[head];
     assign push = in_valid && in_ready;
     assign pop  = out_valid && out_ready;
