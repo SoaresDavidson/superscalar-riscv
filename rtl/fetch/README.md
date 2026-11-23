@@ -128,6 +128,7 @@ Previsto na especificação, em "Versões" e "Pontos em aberto":
 ```sh
 make test T=fetch          # tb/unit/fetch_tb.sv, casos T1 a T10, WIDTH 1 a 4
 make test T=fetch_decode   # tb/integration/fetch_decode_tb.sv, caso T11
+make test T=fetch_ibuf_decode   # tb/integration/fetch_ibuf_decode_tb.sv, caso T12
 make lint
 ```
 
@@ -138,6 +139,7 @@ make lint
 | T5 a T7 | redirects e prioridade |
 | T8 a T10 | alvo fora do múltiplo de `4 × WIDTH`, PC acima de 4 GB, reset no meio |
 | T11 | Fetch + Decode real com `JAL` e back-pressure aleatória: nenhuma instrução do caminho errado passa |
+| T12 | o mesmo com o `PipeFifo` (`u_ibuf`) no meio, `DEPTH` de 1 a 8; prova as duas regras da ligação |
 
 A descrição de cada caso está na especificação, em "Casos de teste
 obrigatórios".

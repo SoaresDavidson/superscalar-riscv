@@ -120,6 +120,35 @@ O caminho errado é eliminado em três lugares:
 
 Custo: 2 ciclos de bolha por `JAL` (era 1 com memória combinacional).
 
+## Ligação com a `u_ibuf` (proposta)
+
+O `PipeFifo` do Davi (#16, na `main`) vai entre o Fetch e o Decode, na
+instância `u_ibuf`. O Fetch não muda: o `out_valid`/`out_ready` dele liga no
+`in_valid`/`in_ready` da fila, e o bundle atravessa empacotado como
+`{slot_valid, pc, inst}` (291 bits com `WIDTH = 3`, a ordem do README do
+`PipeFifo`). A ligação precisa de duas regras. Enquanto não há `core`, elas
+ficam no testbench T12:
+
+```
+ibuf_flush   = be_redirect_valid || dec_redirect_valid
+dec_in_valid = ibuf_out_valid && !ibuf_flush
+```
+
+1. **`flush` também no `JAL`.** Tudo o que está na fila é mais novo que o
+   `JAL`, que já está dentro do Decode. Sem isso, os bundles buscados depois
+   do salto passam para o Decode. Esse descarte total vale mesmo se a
+   recuperação de desvios do back end vier a ser seletiva.
+2. **Saída bloqueada no ciclo do `flush`.** O `PipeFifo` ainda mostra
+   `out_valid = 1` com o conteúdo antigo nesse ciclo, e o Decode o aceitaria.
+   O `flush` do próprio Decode não serve aqui: ele descartaria também o bundle
+   que tem o `JAL`. O bloqueio pode ficar na ligação, como acima, ou dentro do
+   `PipeFifo` (`out_valid = count != 0 && !flush`); a escolha é do Davi.
+
+Com a fila, o `JAL` passa a custar **3 bolhas**: 1 do aviso do Decode, 1 da
+memória síncrona e 1 para atravessar a fila. Com `DEPTH = 1` a vazão cai (35
+ciclos contra 30 no T12 sem back-pressure), porque a fila cheia não aceita
+entrada no mesmo ciclo em que sai um bundle; `DEPTH = 2` já basta.
+
 ## Casos de teste obrigatórios
 
 Em `tb/unit/fetch_tb.sv`, com `WIDTH` de 1 a 4 (`PARAMS_fetch` no Makefile).
@@ -145,6 +174,16 @@ do `JAL` ligado):
   back-pressure aleatória na saída do Decode: as instruções que saem do
   Decode seguem exatamente a ordem do programa, e nenhuma do caminho errado
   passa.
+
+Em `tb/integration/fetch_ibuf_decode_tb.sv` (Fetch + `PipeFifo` + Decode,
+`DEPTH` de 1 a 8 em `PARAMS_fetch_ibuf_decode`):
+
+- **T12:** O programa do T11 com a `u_ibuf` no meio. Com o consumidor sempre
+  pronto, a ordem é a do programa e cada `JAL` custa exatamente 3 bolhas; com
+  back-pressure aleatória, a ordem continua certa. Os parâmetros
+  `FLUSH_ON_JAL` e `GATE_VALID` desligam cada regra da ligação; com qualquer
+  um em 0 e `DEPTH` de 2 ou mais, a instrução `0x18` do caminho errado chega à
+  saída do Decode e o teste falha.
 
 ## Síntese (sky130, 25 ns)
 
@@ -197,7 +236,7 @@ internos.
 2. **Fetch Buffer.** O `PipeFifo` do Davi está na `main` (#16), mas nenhum
    estágio o instancia ainda (não há `core`). Falta combinar a ligação da
    `u_ibuf`: o `flush` também no `JAL` e a saída bloqueada no ciclo do
-   `flush`.
+   `flush` (seção "Ligação com a `u_ibuf`", provada pelo T12).
 3. **Flush coerente com o Decode.** Resolvido em parte: o `retire_team` gera
    `flush` e `be_redirect_valid` no mesmo ciclo, do mesmo sinal interno.
    Falta, no `core`, ligar esse `flush` no Decode e também na `u_ibuf`; senão
