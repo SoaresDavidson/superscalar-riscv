@@ -56,11 +56,13 @@ As saídas têm os mesmos nomes das entradas `in_*` do Decode e ligam direto.
 | `dec_redirect_valid` | entrada | `redirect_valid` | o Decode achou um `JAL` (pulso de um ciclo) |
 | `dec_redirect_pc` | entrada | `redirect_pc` | alvo do `JAL` |
 
-### Pipeline-Control
+### Retire (`retire_team`)
+
+As saídas do `retire_team` têm os mesmos nomes destas entradas e ligam direto.
 
 | Porta | Dir. | Significado |
 |---|---|---|
-| `be_redirect_valid` | entrada | redirect do back end: desvio mal previsto ou exceção, já escolhido pelo controle entre as fontes |
+| `be_redirect_valid` | entrada | redirect do back end: desvio mal previsto ou exceção, já escolhido entre as fontes |
 | `be_redirect_pc` | entrada | PC correto |
 
 ## Comportamento
@@ -116,8 +118,8 @@ Previsto na especificação, em "Versões" e "Pontos em aberto":
 
 - Predição de desvios (v3) e RAS (v4). Os campos `pred_taken` e `pred_target`
   que o `fu_req_t` espera ainda não têm caminho até a Branch Unit (ponto 1).
-- Fetch Buffer: não é do Fetch. É o `PipeFifo` do Davi (#16), entre o Fetch e o
-  Decode (ponto 2).
+- Fetch Buffer: não é do Fetch. É o `PipeFifo` do Davi, já na `main` (#16),
+  mas ainda sem quem o instancie entre o Fetch e o Decode (ponto 2).
 - Bundles parciais (`out_slot_valid` com zeros à direita), necessários quando
   houver desvio previsto como tomado no meio do bundle (v3).
 

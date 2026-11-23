@@ -1,7 +1,8 @@
 # Fetch
 
 > Rascunho de especificação, a ser revisado pela equipe e movido para a wiki.
-> Baseado no `execute_pkg` e no Decode do branch `matheus#decode` (07/11).
+> Atualizado com a `main` de 22/11: Decode, `execute_pkg`, `PipeFifo` (#16) e
+> `retire_team` (#18).
 
 Primeiro estágio do pipeline. A cada ciclo, lê da memória de instruções um
 bundle de `WIDTH` instruções consecutivas (PC, PC+4, PC+8 com `WIDTH = 3`),
@@ -20,7 +21,7 @@ entra na v3 (ver [Versões](#versões)).
 |---|---|---|
 | Memória de instruções | `WIDTH` instruções de 32 bits | `WIDTH` endereços |
 | Decode | `in_ready`; `redirect_valid` e `redirect_pc` (`JAL`) | bundle: `in_valid`, `in_slot_valid`, `in_inst`, `in_pc` |
-| Pipeline-Control | redirect do back end (desvio mal previsto, exceção), já escolhido entre as fontes | — |
+| Retire (`retire_team`) | redirect do back end (`be_redirect_valid`, `be_redirect_pc`, mesmos nomes das entradas do Fetch): desvio mal previsto ou exceção, já escolhido entre as fontes | — |
 
 ## Parâmetros
 
@@ -49,7 +50,7 @@ As saídas para o Decode têm os mesmos nomes das entradas `in_*` dele.
 | `out_inst` | saída | `WIDTH` × 32 | instruções, slot 0 primeiro em ordem de programa (`decode.in_inst`) |
 | `out_pc` | saída | `WIDTH` × `XLEN` | PC de cada slot (`decode.in_pc`) |
 | `dec_redirect_valid`, `dec_redirect_pc` | entrada | 1 + `XLEN` | `decode.redirect_valid` e `decode.redirect_pc` (`JAL`) |
-| `be_redirect_valid`, `be_redirect_pc` | entrada | 1 + `XLEN` | redirect do back end, vindo do Pipeline-Control |
+| `be_redirect_valid`, `be_redirect_pc` | entrada | 1 + `XLEN` | redirect do back end, vindo do `retire_team` |
 
 ## Memória de instruções
 
@@ -145,11 +146,37 @@ do `JAL` ligado):
   Decode seguem exatamente a ordem do programa, e nenhuma do caminho errado
   passa.
 
+## Síntese (sky130, 25 ns)
+
+Medida em 23/11 com o LibreLane 3.0.17, no fluxo completo (síntese,
+posicionamento e roteamento, até o GDS), nas mesmas condições do Dispatch e das
+RS: `USE_SLANG`, `SYNTH_ABC_BUFFERING`, relógio de 25 ns e o SDC genérico (5 ns
+de atraso externo na entrada e na saída). Bloco de 400 x 400 µm (`DIE_AREA`),
+densidade de posicionamento de 40%, 715 pinos. `WIDTH = 3`.
+
+| Células | Área das células | Flip-flops | Setup (pior canto) | Hold | DRC, LVS, antena |
+|---|---|---|---|---|---|
+| 4.901 | 29.885 µm² | 226 | +6,66 ns (`max_ss_100C_1v60`) | +0,12 ns | passam |
+
+Os 226 flip-flops são os previstos: 64 do `pc` de F1, 64 do PC de F2, 96 das
+instruções guardadas no stall e 2 de controle (`f2_valid` e `held`). O caminho
+mais lento vai do registrador do `pc` de F1 até `imem_addr` do slot 2, passando
+pelo somador `pc + 8` de 64 bits:
+
+```
+pc_q → somador pc + 4k (cadeia de vai-um) → imem_addr[2]
+```
+
+Na v1, medida com 10 ns, esse mesmo caminho ficava 1,91 ns acima do relógio; com
+25 ns sobram 6,66 ns. Sobram avisos de slew nos cantos lentos (até 275), dos
+fios até os pinos na borda do bloco; dentro do `core`, esses sinais viram fios
+internos.
+
 ## Versões
 
 | Versão | Conteúdo | Depende de |
 |---|---|---|
-| v1 | Esta especificação | — |
+| v1 | Memória combinacional, um estágio, `JAL` com 1 bolha. Substituída pela v2 | — |
 | v2 | Memória síncrona: estágios F1 e F2, instruções guardadas no stall, `JAL` com 2 bolhas. O Fetch Buffer não é do Fetch: é o `PipeFifo` do Davi (#16), entre o Fetch e o Decode | — |
 | v3 | Pre-decode do opcode; predição estática (para trás = tomado) e depois contadores de 2 bits; BTB para `jalr` e alvos de branch; slots parciais depois de desvio previsto tomado; porta de atualização do preditor | item 1 e página Branch-Prediction |
 | v4 | RAS com a convenção `x1`/`x5` (decisão 7), restaurada no flush | v3 |
@@ -163,12 +190,18 @@ do `JAL` ligado):
    têm esses campos (é também o item 5 do Dispatch). Proposta: acrescentar
    `in_pred_taken` e `in_pred_target` por slot no Decode e os dois campos no
    `uop_t`. Muda o `execute_pkg`: precisa do aval do Decode e do Execute.
-2. **Fetch Buffer.** Proposto pelo Davi no #16 (`PipeFifo`, instância
-   `u_ibuf`). Falta o merge e combinar a ligação do `flush` no `JAL`.
-3. **Flush coerente com o Decode.** O Decode tem uma entrada `flush` própria.
-   O Pipeline-Control precisa levantar o `flush` do Decode no mesmo ciclo do
-   `be_redirect_valid` do Fetch; senão um bundle do caminho errado parado no
-   Decode segue adiante.
+   Até a v3 isso não bloqueia a Branch Unit (ainda a fazer no Execute): como
+   o Fetch nunca prevê desvio tomado, ela pode usar `pred_taken = 0` e
+   `pred_target = pc + 4` como constantes, e todo desvio tomado vira mal
+   previsto.
+2. **Fetch Buffer.** O `PipeFifo` do Davi está na `main` (#16), mas nenhum
+   estágio o instancia ainda (não há `core`). Falta combinar a ligação da
+   `u_ibuf`: o `flush` também no `JAL` e a saída bloqueada no ciclo do
+   `flush`.
+3. **Flush coerente com o Decode.** Resolvido em parte: o `retire_team` gera
+   `flush` e `be_redirect_valid` no mesmo ciclo, do mesmo sinal interno.
+   Falta, no `core`, ligar esse `flush` no Decode e também na `u_ibuf`; senão
+   um bundle do caminho errado parado num dos dois segue adiante.
 
 **Comportamento**
 
@@ -176,9 +209,10 @@ do `JAL` ligado):
    gera exceção na instrução de salto. Proposta: quem calcula o alvo (Branch
    Unit para `jalr` e branches, Decode para `jal`) confere; o Fetch assume
    alvos alinhados.
-5. **`fence.i`** (decisão 9). Se entrar no escopo, o Pipeline-Control usa o
-   redirect do back end com o PC seguinte ao `fence.i`; o Fetch não precisa
-   de porta nova.
+5. **`fence.i`** (decisão 9). Fechado: o `retire_team` trata o `fence.i`
+   como um `fence` (sozinho no commit, sem redirect). Como a memória de
+   instruções não é escrita pelo programa, não há o que buscar de novo, e o
+   Fetch não precisa de nada.
 6. **`RESET_PC`.** Valor a definir.
 7. **Atualização do preditor** (v3). Na resolução do desvio, como no livro
    (Shen & Lipasti, 5.1.4), ou no retire, só com desvios confirmados.
