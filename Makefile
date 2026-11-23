@@ -37,8 +37,9 @@ T ?= $(TESTS)
 # Physical design runs inside the LibreLane image (Dockerfile.pnr); the host
 # needs only docker and a Ciel PDK folder. PNR_CONFIG picks the block's
 # config, relative to the repository root. Without it, the target runs the
-# LibreLane `spm` example in build/spm: a check that the flow and the PDK work
-# while there is no core top to harden.
+# LibreLane `spm` example in build/spm: a check that the flow and the PDK work.
+# The core top (rtl/core) has no config yet: Branch Unit and Memory are still
+# ports, not RTL.
 PNR_IMAGE  := superscalar-riscv-pnr
 PNR_CONFIG ?=
 PDK_ROOT   ?= $(HOME)/.ciel

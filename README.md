@@ -78,9 +78,10 @@ docker run --rm -it -v "$PWD":/work superscalar-riscv bash   # shell no containe
 (`Dockerfile.pnr`). A máquina precisa só de docker e de um PDK baixado pelo
 Ciel em `~/.ciel` (outro caminho: `make pnr PDK_ROOT=/caminho`).
 
-Enquanto não há um topo do core, `make pnr` sem argumentos roda o exemplo
-`spm` do LibreLane em `build/spm`, só para conferir que o flow e o PDK
-funcionam. Para rodar o flow de um bloco, passe a config dele, com caminho a
+Sem argumentos, `make pnr` roda o exemplo `spm` do LibreLane em
+`build/spm`, só para conferir que o flow e o PDK funcionam. O topo
+`rtl/core` ainda não tem config: a Branch Unit e o Memory não existem e
+aparecem nele como portas. Para rodar o flow de um bloco, passe a config dele, com caminho a
 partir da raiz do repositório:
 
 ```sh
