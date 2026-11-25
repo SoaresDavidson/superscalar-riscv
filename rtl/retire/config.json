@@ -1,0 +1,34 @@
+{
+  "DESIGN_NAME": "retire_team",
+  "VERILOG_FILES": [
+    "dir::../execute/execute_pkg.sv",
+    "dir::../dispatch/dispatch_pkg.sv",
+    "dir::retire_base.v",
+    "dir::retire_commit_act.v",
+    "dir::retire_commit_sel.v",
+    "dir::retire_csr.v",
+    "dir::retire_deep2.v",
+    "dir::retire_flush_gen.v",
+    "dir::retire_rob_bank.v",
+    "dir::retire_rob_ctrl.v",
+    "dir::retire_rrat.v",
+    "dir::retire_xcpt_track.v",
+    "dir::retire_team.sv"
+  ],
+  "VERILOG_INCLUDE_DIRS": [
+    "dir::.."
+  ],
+  "USE_SLANG": true,
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 25,
+  "SYNTH_ABC_BUFFERING": true,
+  "FP_SIZING": "absolute",
+  "DIE_AREA": [
+    0,
+    0,
+    700,
+    700
+  ],
+  "PL_TARGET_DENSITY_PCT": 40,
+  "RUN_KLAYOUT_XOR": false
+}

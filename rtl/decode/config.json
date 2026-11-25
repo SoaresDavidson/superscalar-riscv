@@ -1,0 +1,20 @@
+{
+  "DESIGN_NAME": "decode",
+  "VERILOG_FILES": [
+    "dir::../execute/execute_pkg.sv",
+    "dir::decode.sv"
+  ],
+  "USE_SLANG": true,
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 25,
+  "SYNTH_ABC_BUFFERING": true,
+  "FP_SIZING": "absolute",
+  "DIE_AREA": [
+    0,
+    0,
+    500,
+    500
+  ],
+  "PL_TARGET_DENSITY_PCT": 40,
+  "RUN_KLAYOUT_XOR": false
+}
