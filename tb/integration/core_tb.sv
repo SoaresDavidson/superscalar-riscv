@@ -38,6 +38,11 @@ module core_tb #(
   localparam int    IMEM_N   = 2048;           // words: 0x0000 to 0x1FFF
   localparam logic [31:0] NOP = 32'h0000_0013;
 
+  // No `timescale in the project: time is in simulator units, so the report
+  // counts cycles, never ns or MHz.
+  localparam string BAR  = "=========================================================";
+  localparam string LINE = "---------------------------------------------------------";
+
   logic clk = 1'b0, reset;
   initial forever #5 clk = ~clk;
 
@@ -217,7 +222,7 @@ module core_tb #(
                3'd0: v = a + imm;
                3'd1: v = a << i[25:20];
                3'd5: v = a >> i[25:20];
-               default: $fatal(1, "reference: OP-IMM f3 %0d not modelled", f3);
+               default: $fatal(1, "referência: OP-IMM f3 %0d não modelado", f3);
              endcase
       7'h33: case ({i[30], f3})
                4'b0000: v = a + b2;
@@ -226,7 +231,7 @@ module core_tb #(
                4'b0110: v = a | b2;
                4'b0111: v = a & b2;
                4'b0010: v = ($signed(a) < $signed(b2)) ? 64'd1 : 64'd0;
-               default: $fatal(1, "reference: OP not modelled");
+               default: $fatal(1, "referência: OP não modelado");
              endcase
       7'h3B: begin logic [31:0] s; s = a[31:0] + b2[31:0]; v = {{32{s[31]}}, s}; end
       7'h37: v = {{32{i[31]}}, i[31:12], 12'h000};
@@ -235,7 +240,7 @@ module core_tb #(
                v = load_value(exec_op_t'((f3 == 3'd2) ? AGU_LW : AGU_LD), a + imm);
              end
       7'h23: begin writes = 1'b0; n_st++; end
-      default: $fatal(1, "reference: opcode %h not modelled", opc);
+      default: $fatal(1, "referência: opcode %h não modelado", opc);
     endcase
     if (writes && rd != 0) begin
       x[rd] = v;
@@ -268,19 +273,19 @@ module core_tb #(
       if (flush) begin
         n_flush++;
         if (u_core.be_redirect_pc !== MTVEC)
-          $fatal(1, "flush redirects to %h, expected mtvec %h",
+          $fatal(1, "flush redireciona para %h, esperado mtvec %h",
                  u_core.be_redirect_pc, MTVEC);
       end
 
       for (int k = 0; k < W; k++) begin
         if (commit_valid[k]) begin
           if (n_commit_rd >= n_exp)
-            $fatal(1, "extra register commit: x%0d (cycle %0d)", commit_rd[k], cyc);
+            $fatal(1, "commit de registrador a mais: x%0d (ciclo %0d)", commit_rd[k], cyc);
           if (commit_rd[k] !== 5'(exp_rd[n_commit_rd]))
-            $fatal(1, "commit %0d: rd = x%0d, expected x%0d",
+            $fatal(1, "commit %0d: rd = x%0d, esperado x%0d",
                    n_commit_rd, commit_rd[k], exp_rd[n_commit_rd]);
           if (val_by_tag[commit_tag[k]] !== exp_val[n_commit_rd])
-            $fatal(1, "commit %0d (x%0d): value %h, expected %h",
+            $fatal(1, "commit %0d (x%0d): valor %h, esperado %h",
                    n_commit_rd, commit_rd[k], val_by_tag[commit_tag[k]],
                    exp_val[n_commit_rd]);
           n_commit_rd++;
@@ -350,14 +355,14 @@ module core_tb #(
     main_prog[p++] = LD  (7, 10, 56);
     main_prog[p++] = ADD (8, 7, 31);
     // The exception: an 8-byte load from an address that is a multiple of 4.
-    if (p != EXC) $fatal(1, "main program: EXC = %0d, but the LD is at %0d", EXC, p);
+    if (p != EXC) $fatal(1, "programa principal: EXC = %0d, mas o LD está em %0d", EXC, p);
     main_prog[p++] = LD  (9, 10, 4);
     // Wrong path: in flight when the flush comes, must never commit.
     main_prog[p++] = ADDI(20, 0, 1);         // overwrites x20 speculatively
     main_prog[p++] = ADDI(21, 0, 2);
     main_prog[p++] = LD  (22, 10, 0);
     main_prog[p++] = ADD (9, 20, 21);
-    if (p != NMAIN) $fatal(1, "main program has %0d instructions, NMAIN = %0d", p, NMAIN);
+    if (p != NMAIN) $fatal(1, "programa principal tem %0d instruções, NMAIN = %0d", p, NMAIN);
 
     // Trap handler at mtvec: reads the committed x20, not the wrong-path one.
     hand_prog[0] = ADDI(9, 0, 12'h077);
@@ -373,33 +378,54 @@ module core_tb #(
     n_commit_rd = 0; n_commit_st = 0; n_commit_ld = 0; n_flush = 0;
     seen_rs_stall = 1'b0; seen_int_full = 1'b0;
 
+    $display("");
+    $display("%s", BAR);
+    $display(" Testbench core  -  DEEP2 = %0d, LSU_LAT = %0d, W = %0d", DEEP2, LSU_LAT, W);
+    $display("%s", BAR);
+    $display("    programa: %0d instruções, LD desalinhado no índice %0d; handler: %0d",
+             NMAIN, EXC, NHAND);
+    $display("    esperado: %0d commits de registrador, %0d loads, %0d stores, 1 flush",
+             n_exp, n_ld, n_st);
+
     reset = 1'b1;
     repeat (2) @(posedge clk);
     #1 reset = 1'b0;
+    $display("    reset liberado no ciclo %0d", cyc);
 
     while (n_commit_rd < n_exp && cyc < MAX_CYC) @(posedge clk);
     if (n_commit_rd < n_exp)
-      $fatal(1, "timeout: %0d of %0d register commits in %0d cycles",
+      $fatal(1, "timeout: %0d de %0d commits de registrador em %0d ciclos",
              n_commit_rd, n_exp, cyc);
     // The handler is followed by NOPs: nothing else may commit.
     repeat (40) @(posedge clk);
     @(negedge clk);
 
     if (n_commit_rd !== n_exp)
-      $fatal(1, "%0d register commits, expected %0d", n_commit_rd, n_exp);
-    if (n_flush !== 1)        $fatal(1, "%0d flushes, expected 1", n_flush);
+      $fatal(1, "%0d commits de registrador, esperado %0d", n_commit_rd, n_exp);
+    if (n_flush !== 1)        $fatal(1, "%0d flushes, esperado 1", n_flush);
     if (n_commit_st !== n_st)
-      $fatal(1, "%0d stores committed, expected %0d", n_commit_st, n_st);
+      $fatal(1, "%0d stores com commit, esperado %0d", n_commit_st, n_st);
     if (n_commit_ld !== n_ld)
-      $fatal(1, "%0d loads committed, expected %0d", n_commit_ld, n_ld);
+      $fatal(1, "%0d loads com commit, esperado %0d", n_commit_ld, n_ld);
     // NOPs keep flowing behind the handler, so the RS and the ROB are never
     // empty at a fixed instant; check instead that the core kept running.
     if (imem_addr[0] <= MTVEC + 64'(4 * NHAND))
-      $fatal(1, "fetch stuck at %h after the handler", imem_addr[0]);
-    if (!seen_rs_stall)      $fatal(1, "the RS never refused a bundle: back-pressure not exercised");
-    if (!seen_int_full)      $fatal(1, "the RS INT never filled");
+      $fatal(1, "fetch parado em %h depois do handler", imem_addr[0]);
+    if (!seen_rs_stall)      $fatal(1, "a RS nunca recusou um bundle: back-pressure não exercitado");
+    if (!seen_int_full)      $fatal(1, "a RS INT nunca encheu");
 
-    $display("PASS core_tb DEEP2=%0d LSU_LAT=%0d: %0d register commits (%0d loads, %0d stores), 1 flush, %0d cycles",
+    $display("");
+    $display("%s", LINE);
+    $display("  commits de registrador : %0d de %0d", n_commit_rd, n_exp);
+    $display("  loads com commit       : %0d de %0d", n_commit_ld, n_ld);
+    $display("  stores com commit      : %0d de %0d", n_commit_st, n_st);
+    $display("  flushes                : %0d, para mtvec %h", n_flush, MTVEC);
+    $display("  back-pressure          : RS recusou bundle, RS INT encheu");
+    $display("  ciclos                 : %0d", cyc);
+    $display("  RESULTADO              : TODAS AS CONFERÊNCIAS OK");
+    $display("%s", LINE);
+    $display("");
+    $display("PASS core_tb DEEP2=%0d LSU_LAT=%0d: %0d commits de registrador (%0d loads, %0d stores), 1 flush, %0d ciclos",
              DEEP2, LSU_LAT, n_exp, n_ld, n_st, cyc);
     $finish;
   end
