@@ -14,13 +14,17 @@ SKIP_RUNS := -path '*/runs' -prune -o
 PKGS   := $(BASE_PKG) $(filter-out $(BASE_PKG),$(shell find rtl $(SKIP_RUNS) -name '*_pkg.sv' -print | sort))
 MODS   := $(shell find rtl $(SKIP_RUNS) \( -name '*.sv' -o -name '*.v' \) ! -name '*_pkg.sv' -print | sort)
 RTL    := $(PKGS) $(MODS)
-SUITES := unit integration
+SUITES := unit integration isa
 BUILD  := build
 
 suite_tests = $(patsubst tb/$(1)/%_tb.sv,%,$(wildcard tb/$(1)/*_tb.sv))
 UNIT_TESTS        := $(call suite_tests,unit)
 INTEGRATION_TESTS := $(call suite_tests,integration)
-TESTS := $(UNIT_TESTS) $(INTEGRATION_TESTS)
+# The isa suite runs programs the core cannot execute yet (no Branch Unit, no
+# store data path), so it is expected to fail for now and stays out of
+# `make test` and CI. Run it with `make test-isa` or `make test T=core_isa`.
+ISA_TESTS         := $(call suite_tests,isa)
+TESTS := $(UNIT_TESTS) $(INTEGRATION_TESTS) $(ISA_TESTS)
 
 vpath %_tb.sv $(addprefix tb/,$(SUITES))
 
@@ -33,9 +37,10 @@ PARAMS_PipeFifo := DEPTH=1 DEPTH=2 DEPTH=3 DEPTH=4 DEPTH=8
 PARAMS_retire_team := DEEP2=0 DEEP2=1
 PARAMS_backend := DEEP2=0 DEEP2=1
 PARAMS_core := DEEP2=0 DEEP2=1
+PARAMS_core_isa := DEEP2=0 DEEP2=1
 PARAMS_fetch := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
 
-T ?= $(TESTS)
+T ?= $(UNIT_TESTS) $(INTEGRATION_TESTS)
 
 # Physical design runs inside the LibreLane image (Dockerfile.pnr); the host
 # needs only docker and a Ciel PDK folder. PNR_CONFIG picks the block's
@@ -57,12 +62,13 @@ PNR_RUN    := docker run --rm --user "$$(id -u):$$(id -g)" -e HOME=/tmp \
 PNR_CONFIGS := $(wildcard rtl/*/config*.json)
 PNR_STAMP   := $(shell date +%Y-%m-%d_%H-%M-%S)
 
-.PHONY: test test-unit test-integration lint pnr pnr-image pnr-all pnr-status clean $(TESTS)
+.PHONY: test test-unit test-integration test-isa lint pnr pnr-image pnr-all pnr-status clean $(TESTS)
 .PHONY: $(PNR_CONFIGS:%=pnr-run/%)
 
 test: $(T)
 test-unit: $(UNIT_TESTS)
 test-integration: $(INTEGRATION_TESTS)
+test-isa: $(ISA_TESTS)
 
 $(TESTS): %: %_tb.sv $(RTL) | $(BUILD)
 	@set -e; for p in $(or $(PARAMS_$@),none); do \

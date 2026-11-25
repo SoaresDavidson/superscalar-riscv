@@ -56,7 +56,10 @@ When code and wiki disagree, report it instead of silently picking one.
 - `rtl/<block>/` — synthesizable RTL, one directory per pipeline block.
 - `tb/unit/<name>_tb.sv` — self-checking unit testbench for module `<name>`.
 - `tb/integration/<name>_tb.sv` — self-checking testbench of several blocks
-  wired together. Test names are unique across both folders.
+  wired together.
+- `tb/isa/<name>_tb.sv` — programs run on the whole core against a reference
+  ISA model. Expected to fail while blocks are missing, so it stays out of
+  `make test` and CI. Test names are unique across the three folders.
 - `docs/desenho_caminho_dados/` — draw.io datapath diagrams.
 - `../superscalar-riscv.wiki/` — separate git repository (the GitHub wiki),
   cloned as a sibling of this repo, outside it.
@@ -65,8 +68,9 @@ When code and wiki disagree, report it instead of silently picking one.
 
 ## Commands
 
-- `make test` — every testbench; `make test-unit` / `make test-integration` —
-  one suite; `make test T=decode` — one test.
+- `make test` — every unit and integration testbench; `make test-unit` /
+  `make test-integration` / `make test-isa` — one suite; `make test T=decode`
+  — one test.
 - `make lint` — Verilator lint over all RTL (requires `verilator`).
 - A test with several parameter sets lists them in `PARAMS_<name>` in the
   Makefile.

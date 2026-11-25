@@ -105,3 +105,32 @@ confere que o rename voltou ao mapeamento do commit e reusou as tags liberadas.
 O testbench compara o fluxo de commit (registrador e valor) com um modelo de
 referência e confere loads e stores no commit, exatamente um flush para o
 `mtvec`, nenhum commit depois do handler e o Fetch seguindo adiante.
+
+### Suíte de ISA
+
+```sh
+make test-isa      # tb/isa/core_isa_tb.sv, DEEP2 = 0 e 1
+```
+
+Roda 25 programas curtos, um por recurso do RV64I, cada um a partir do reset,
+e compara com um modelo de referência RV64I escrito no próprio testbench:
+fluxo de commit (registrador e valor), nenhum commit depois do fim do programa
+ou de um trap, contagem de loads e stores e conteúdo final da memória de
+dados. Um programa que falha não interrompe os outros: o relatório no fim
+lista todos, com o motivo de cada falha. Um programa que fica 400 ciclos sem
+commit é dado como travado, e a mensagem aponta a primeira instrução depois
+do último commit.
+
+A suíte falha de propósito enquanto faltar RTL, por isso fica fora do
+`make test` e do CI. Hoje passam 15 de 25. As falhas são:
+
+| Programas | Motivo |
+|---|---|
+| `branch_not_taken`, `branch_taken`, `branch_loop`, `jalr`, `prog_sum_array`, `prog_memcpy` | sem Branch Unit, o primeiro desvio fica parado na RS INT |
+| `store_then_load`, `store_memory` | a porta do Memory não leva o dado do store |
+| `ecall`, `ebreak` | o ROB faz commit de `ECALL`/`EBREAK` como instrução comum (`rob_sys_kind` = 0) |
+
+Para `ECALL` e `EBREAK`, a suíte só exige o que o RV64I fixa: nem a instrução
+nem as seguintes fazem commit. Para onde o core vai depois do trap (handler ou
+parada) depende da decisão 10, que está em aberto, e não é conferido.
+
