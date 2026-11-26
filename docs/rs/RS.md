@@ -50,8 +50,8 @@ que `req_valid` e `req_ready` estão em 1.
 As RS guardam **só tags** (decisão 16 da wiki): nenhuma entrada guarda
 valores. Os valores são lidos do banco físico na emissão, pelas portas
 `read_tag -> read_valid, read_data` do `PRFRename` (branch `davi#rename`).
-Portas usadas: 0 e 1 pela ALU, 2 e 3 pela Branch Unit, 4 e 5 pela AGU
-(`READ_N` = 6).
+Portas usadas: 0 e 1 pela ALU, 2 e 3 pela Branch Unit, 4 pela AGU de load
+(só a base), 5 e 6 pela AGU de store (`READ_N` = 7).
 
 ## Funcionamento
 
@@ -92,12 +92,19 @@ acontecem na borda do relógio.
 - **RS INT:** dois seletores independentes. O da ALU só considera entradas com
   `fu_of(op) == FU_ALU`; o da Branch Unit só considera `FU_BRANCH`. Como
   disputam conjuntos disjuntos de entradas, não há cascata.
-- **RS MEM:** um seletor, para a AGU.
+- **RS MEM:** dois seletores (decisão 17): um entre os loads prontos, para a
+  AGU de load, e um entre os stores prontos, para a AGU de store
+  (`is_load(op)` separa os dois). Um load e um store podem sair no mesmo
+  ciclo. Cada seletor escolhe o **mais antigo** pelo `age`
+  (`age_is_younger`): a ordem não afeta a correção, porque o store buffer e
+  o load buffer aceitam qualquer ordem, mas um store antigo emitido tarde dá
+  tempo a loads mais novos de lerem um valor velho, e cada violação custa um
+  flush total.
 - Uma entrada está **pronta** quando `busy && src1_ready && src2_ready`, com os
   bits de pronto do começo do ciclo. Uma fonte que acorda num ciclo só pode
   ser emitida no ciclo seguinte.
-- Política: entre as prontas, a de **menor índice**. As entradas já chegam com
-  o `age` do ROB; trocar para a **mais antiga** é o item 1.
+- Política na RS INT: entre as prontas, a de **menor índice**. As entradas já
+  chegam com o `age` do ROB; trocar para a **mais antiga** é o item 1.
 - O seletor só emite se a FU estiver livre (`req_ready = 1`). Na transferência,
   a entrada volta a `busy = 0`.
 - **Leitura dos operandos:** no ciclo da emissão, as tags das fontes da
@@ -114,7 +121,8 @@ acontecem na borda do relógio.
   MEM, os campos que a entrada não tem (`use_imm`, `pc`, `pred_*`) vão em zero;
   a AGU ignora `use_imm` (página Execute). Os campos `lsq_idx` e `color` da
   entrada MEM (decisão 17) não cabem no `fu_req_t` e saem ao lado dele, por
-  `agu_req_lsq_idx` e `agu_req_color`.
+  `agu_ld_req_lsq_idx`/`agu_ld_req_color` (load) e `agu_st_req_lsq_idx`
+  (store). O load lê só a base: o `src2` do `fu_req_t` dele vai em 0.
 
 ### 4. Contagem de livres
 
@@ -240,26 +248,22 @@ seletores ou multiplexadores largos.
    wiki isso segue em aberto (Home e decisão 15): precisa de aprovação do
    grupo e de um registro em `Decisoes-de-Projeto`. O `rs_int` não depende
    do tamanho (parâmetro `ENTRIES`).
-1. **Seleção pela mais antiga.** O `age` agora chega do ROB (`rob_age`,
-   item 3 do `Dispatch.md`, resolvido), então a seleção pode deixar de ser
-   pela posição na RS. Falta decidir se vale o custo: comparar idades
+1. **Seleção pela mais antiga.** Feita na RS MEM (decisão 17). Na RS INT continua em aberto: comparar idades
    (`age_is_younger`) entre as prontas é mais lento que achar o menor
-   índice.
+   índice, e com 8 entradas o custo é maior que nas 4 da RS MEM.
 2. ~~**RS com valores ou só tags**~~ **Resolvido: só tags** (decisão 16 da
    wiki). A decisão 16 deixa em aberto `READ_N` e o ciclo da leitura; a
-   proposta desta RS é `READ_N` = 6 (2 por FU), lidas no mesmo ciclo da
+   proposta desta RS é `READ_N` = 7 (2 por FU, 1 na AGU de load), lidas no mesmo ciclo da
    emissão. Em aberto dentro disso: se a leitura passar a ser um estágio
    próprio (registrado) para encurtar o ciclo, a FU recebe a requisição um
    ciclo depois, e o wakeup precisa ser revisto.
 3. **Modelo de flush** (item 6 do `Dispatch.md`). Com flush seletivo, a RS
    recebe `flush_age` e zera só as entradas mais novas que ele (usando
    `age_is_younger`), o que depende do item 1.
-4. **Ordem na RS MEM.** Sem uma fila de loads e stores, um load não pode
-   passar à frente de um store mais antigo ao mesmo endereço, e a seleção
-   pela posição não respeita a ordem do programa. Proposta para a primeira
-   versão: a RS MEM emite **em ordem de programa**, como a fila de endereços
-   do R10000, o que exige o `age` (item 1) ou uma alocação circular, em
-   ordem. Depende da parte de memória (Shen & Lipasti, 5.3).
+4. ~~**Ordem na RS MEM.**~~ **Resolvido pela decisão 17:** loads e stores
+   saem fora de ordem, e o store buffer e o load buffer (alocados no
+   dispatch, com cor e checagem de violação) garantem a correção. A RS MEM
+   escolhe o mais antigo de cada tipo (item 1) só para reduzir violações.
 5. **Emissão do store** (item 7 do `Dispatch.md`). Proposta: o store só sai
    com as duas fontes prontas (base e dado).
 6. **Responsável.** Não há issue para a etapa de Issue; registrar quem faz as

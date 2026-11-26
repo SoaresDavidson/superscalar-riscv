@@ -20,7 +20,8 @@ Retirement ele chama de *complete*. Por isso o "completion buffer" do livro
 |---|---|---|
 | ALU | `alu_resp_valid`, `alu_resp` | `alu_resp_ready` |
 | Branch Unit | `br_resp_valid`, `br_resp` | `br_resp_ready` |
-| AGU | `agu_resp_valid`, `agu_resp`; `agu_is_load` (saída `resp_is_load` da `agu`, item 1) | `agu_resp_ready` |
+| AGU de load | `agu_ld_resp_valid`, `agu_ld_resp` | `agu_ld_resp_ready` |
+| AGU de store | `agu_st_resp_valid`, `agu_st_resp` | `agu_st_resp_ready` |
 | Memory (dado do load) | `lsu_resp_valid`, `lsu_resp` | `lsu_resp_ready` |
 | Rename (`PRFRename`, com `WB_N = 3`) | — | `wb_valid`, `wb_tag`, `wb_data` |
 | RS INT e RS MEM (com `WB_N = 3`) | — | `wb_valid`, `wb_tag` |
@@ -50,8 +51,8 @@ Não tem parâmetros. As duas contagens são fixas e aparecem como `localparam`:
 | `flush` | entrada | 1 | saída `flush` do ROB; com 1, nenhuma resposta deste ciclo produz efeito |
 | `alu_resp_valid`, `alu_resp_ready`, `alu_resp` | entrada, saída, entrada | 1, 1, `fu_resp_t` | resposta da ALU |
 | `br_resp_valid`, `br_resp_ready`, `br_resp` | entrada, saída, entrada | 1, 1, `fu_resp_t` | resposta da Branch Unit |
-| `agu_resp_valid`, `agu_resp_ready`, `agu_resp` | entrada, saída, entrada | 1, 1, `fu_resp_t` | resposta da AGU |
-| `agu_is_load` | entrada | 1 | a resposta da AGU é de um load; vale com `agu_resp_valid` |
+| `agu_ld_resp_valid`, `agu_ld_resp_ready`, `agu_ld_resp` | entrada, saída, entrada | 1, 1, `fu_resp_t` | resposta da AGU de load |
+| `agu_st_resp_valid`, `agu_st_resp_ready`, `agu_st_resp` | entrada, saída, entrada | 1, 1, `fu_resp_t` | resposta da AGU de store |
 | `lsu_resp_valid`, `lsu_resp_ready`, `lsu_resp` | entrada, saída, entrada | 1, 1, `fu_resp_t` | dado do load, vindo do Memory |
 | `wb_valid` | saída | `WB_N` | escreve `wb_data` na tag `wb_tag` (`PRFRename`) e acorda quem espera a tag (RS) |
 | `wb_tag` | saída | `WB_N` × `TAG_W` | tag física do destino; vale com `wb_valid` |
@@ -67,7 +68,8 @@ A mesma tabela do `rtl/issue/README.md`:
 |---|---|---|
 | ALU | 0 | 0 |
 | Branch Unit | 1 (link do `jalr`) | 1 |
-| AGU | — (o resultado é um endereço) | 2, **só stores e exceções** |
+| AGU de load | — (o resultado é um endereço) | 2, **só com exceção** |
+| AGU de store | — | 2, todo store |
 | Load (Memory) | 2 | 3 |
 
 ## Regras
@@ -77,16 +79,28 @@ wb_valid[p]       = src_valid && !flush && wr_en && dst_tag != 0 && !exception
                     (p = 0 ALU, 1 Branch Unit, 2 load)
 rob_resp_valid[0] = !flush && alu_resp_valid
 rob_resp_valid[1] = !flush && br_resp_valid
-rob_resp_valid[2] = !flush && agu_resp_valid && (!agu_is_load || exception)
+ld_cand           = agu_ld_resp_valid && agu_ld_resp.exception
+st_cand           = agu_st_resp_valid
+ld_wins           = ld_cand && (!st_cand || st mais nova que ld)
+rob_resp_valid[2] = !flush && (ld_cand || st_cand)
+rob_resp[2]       = ld_wins ? agu_ld_resp : agu_st_resp
 rob_resp_valid[3] = !flush && lsu_resp_valid
-*_resp_ready      = 1
+agu_ld_resp_ready = flush || !(ld_cand && st_cand && !ld_wins)
+agu_st_resp_ready = flush || !(ld_cand && st_cand &&  ld_wins)
+os outros *_resp_ready = 1
 ```
 
 - `wb_tag[p] = dst_tag` e `wb_data[p] = result` da fonte do barramento `p`;
   `rob_resp[p]` é a resposta inteira da fonte da porta `p`, sem alteração.
-- `*_resp_ready` é sempre 1: o `PRFRename` e o ROB não têm `ready`, e cada
-  fonte tem o seu barramento, então não há o que esperar. No ciclo do flush a
-  resposta também é consumida, e descartada.
+- `*_resp_ready` é 1 para ALU, Branch Unit e load: o `PRFRename` e o ROB não
+  têm `ready`, e cada uma dessas fontes tem o seu barramento. No ciclo do
+  flush a resposta também é consumida, e descartada.
+- A porta 2 do ROB é dividida pelas duas AGUs (decisão 17), porque o
+  `retire_team` exige 4 portas. Só há disputa quando um store termina no mesmo
+  ciclo em que um load gera exceção de desalinhamento. Vence o mais antigo
+  (`age_is_younger`); o outro recebe `resp_ready = 0`, a AGU o segura, e ele
+  sai no ciclo seguinte. Um load sem exceção nunca disputa a porta: o
+  `agu_ld_resp_ready` dele é sempre 1.
 - Toda instrução que termina responde ao ROB, inclusive as sem destino
   (desvios condicionais e stores). Só as com destino escrevem e acordam.
 - Nada é reordenado ou juntado. Duas respostas do mesmo ciclo nunca têm a
@@ -112,7 +126,7 @@ Um load passa pela memória de dados síncrona e termina um ciclo depois:
 
 | Ciclo | AGU | Memory | Completion |
 |---|---|---|---|
-| t1 | endereço, `agu_is_load = 1` | recebe o endereço na borda | **nada**: nem write-back, nem ROB |
+| t1 | endereço, na AGU de load | recebe o endereço na borda | **nada**: nem write-back, nem ROB |
 | t2 | — | entrega o dado | `wb_valid[2] = 1`; `rob_resp_valid[3] = 1` |
 
 ## Casos difíceis
@@ -124,8 +138,8 @@ Um load passa pela memória de dados síncrona e termina um ciclo depois:
    marcaria o load como terminado antes de o dado voltar, e ele seria
    efetivado com o registrador ainda sem valor. O load termina pela porta 3.
    A Completion não consegue distinguir load de store pelo `wr_en`: um load
-   para `x0` chega com `wr_en = 0`, como um store, e responderia ao ROB pela
-   porta 2 e de novo pela porta 3. Por isso existe a entrada `agu_is_load`.
+   para `x0` chega com `wr_en = 0`, como um store. Com duas AGUs, a origem da
+   resposta diz o tipo, e a entrada `agu_is_load` da v1 deixou de existir.
 3. **Exceção.** Uma instrução com `exception = 1` não escreve nem acorda,
    mesmo com `wr_en = 1`: o resultado não tem significado, e a exceção
    descarta as mais novas quando chegar ao topo do ROB. A resposta vai ao ROB
@@ -161,19 +175,22 @@ portas do ROB ligam); o caso R compara com as regras.
 - **T1:** Sem respostas, com e sem reset: nenhuma saída válida; todos os `*_resp_ready` em 1.
 - **T2:** ALU com destino: barramento 0 e porta 0.
 - **T3:** Branch Unit: `jalr` no barramento 1 e porta 1; desvio condicional só na porta 1.
-- **T4:** AGU com store: só a porta 2, nunca write-back.
-- **T5:** AGU com load sem exceção, inclusive load para `x0`: nada sai.
-- **T6:** AGU com load desalinhado: porta 2, com a causa.
-- **T7:** AGU com store desalinhado: porta 2.
+- **T4:** AGU de store: só a porta 2, nunca write-back.
+- **T5:** AGU de load sem exceção, inclusive load para `x0`: nada sai.
+- **T6:** AGU de load com load desalinhado: porta 2, com a causa.
+- **T7:** AGU de store com store desalinhado: porta 2.
 - **T8:** Dado do load: barramento 2 e porta 3.
 - **T9:** Exceção com `wr_en = 1`: só a porta do ROB, sem write-back.
 - **T10:** `wr_en = 1` com tag 0 em cada fonte que escreve: só as portas do ROB.
-- **T11:** As quatro fontes no mesmo ciclo, com conteúdos distintos (pega troca de barramentos ou portas); de novo com a AGU num load.
+- **T11:** Todas as fontes no mesmo ciclo, com conteúdos distintos (pega troca de barramentos ou portas), com a AGU de load sem exceção; de novo sem a AGU de store.
 - **T12:** Sem `valid`, com conteúdo que escreveria e com conteúdo `X`: nada sai.
-- **T13:** Flush com as quatro fontes válidas: nada sai; todos prontos.
+- **T13:** Flush com todas as fontes válidas, inclusive uma disputa da porta 2: nada sai; todos prontos.
 - **T14:** Reuso de tag no ciclo seguinte ao flush: as mesmas tags, com dados novos, são escritas.
 - **T15:** Valores-limite: bit 63, metade de cima, maior tag, `age` 0 e máximo, todas as causas.
-- **R:** 3000 ciclos aleatórios, com flush aleatório, contra as regras.
+- **T16:** Disputa da porta 2 com o load mais antigo: sai o load, o store espera (`ready = 0`) e sai no ciclo seguinte.
+- **T17:** Disputa com o store mais antigo, através da volta do `age` (250 antes de 3): sai o store, o load espera.
+- **T18:** Load sem exceção e store no mesmo ciclo: sem disputa, os dois prontos, o store sai.
+- **R:** 3000 ciclos aleatórios, com flush aleatório e disputas frequentes da porta 2, contra as regras.
 
 Integração: o `tb/integration/backend_tb.sv` (PR #22) liga os barramentos e
 as respostas ao ROB à mão. Trocando essa ligação por uma instância da
@@ -239,6 +256,7 @@ esses sinais viram fios internos curtos.
 |---|---|---|
 | v1 | Esta especificação: 4 fontes, 3 barramentos, 4 portas do ROB, combinacional, flush total | — |
 | v2 | `agu_is_load` ligado à origem definitiva; porta do Memory no formato definitivo | itens 3 e 6 |
+| v3 | Duas AGUs (decisão 17): entradas `agu_ld_*` e `agu_st_*`, sem `agu_is_load`; porta 2 do ROB com árbitro pelo mais antigo | — |
 
 ## Pontos em aberto
 
@@ -250,9 +268,8 @@ esses sinais viram fios internos curtos.
    Memory, que recebe a resposta da AGU, fornece o sinal; (C) um campo novo
    no `fu_resp_t`, que muda o `execute_pkg` e todos os blocos. Adotada a (A):
    a `agu` tem a saída `resp_is_load`, e o `core` (`rtl/core/core.sv`) a liga
-   em `agu_is_load`. O `backend_tb` ainda usa a tabela indexada pelo `age`,
-   que o modelo do LSU precisa de qualquer forma para saber o tamanho do
-   acesso.
+   em `agu_is_load`. **Superado na v3:** com uma AGU de load e uma de store,
+   a origem da resposta diz o tipo, e a entrada saiu.
 2. **Retorno do load.** O Memory não tem especificação. Proposta: a mesma
    `fu_resp_t`, como no modelo do `backend_tb`, com três requisitos para o
    Memory: os metadados (`dst_tag`, `wr_en`, `age`) andam em paralelo à

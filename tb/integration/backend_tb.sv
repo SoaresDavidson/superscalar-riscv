@@ -36,7 +36,7 @@ module backend_tb #(
 
   localparam int W        = 3;
   localparam int WB_N     = 3;   // register write-back buses: ALU, Branch Unit, load
-  localparam int READ_N   = 6;
+  localparam int READ_N   = 7;
   localparam int ROB_N    = 4;   // ROB response ports: ALU, Branch Unit, AGU, LSU
   localparam int MAX_CYC  = 3000;
 
@@ -104,15 +104,18 @@ module backend_tb #(
   fu_req_t                     alu_req;
   logic                        br_req_valid;
   fu_req_t                     br_req;
-  logic                        agu_req_valid, agu_req_ready;
-  fu_req_t                     agu_req;
-  lsq_idx_t                    agu_req_lsq_idx;
-  sb_ptr_t                     agu_req_color;
-  exec_op_t                    agu_op;
+  logic                        agu_ld_req_valid, agu_ld_req_ready;
+  fu_req_t                     agu_ld_req;
+  lsq_idx_t                    agu_ld_req_lsq_idx;
+  sb_ptr_t                     agu_ld_req_color;
+  exec_op_t                    agu_ld_op;
+  logic                        agu_st_req_valid, agu_st_req_ready;
+  fu_req_t                     agu_st_req;
+  lsq_idx_t                    agu_st_req_lsq_idx;
 
   // FUs -> write-back / ROB
-  logic                        alu_resp_valid, agu_resp_valid;
-  fu_resp_t                    alu_resp, agu_resp;
+  logic                        alu_resp_valid, agu_ld_resp_valid, agu_st_resp_valid;
+  fu_resp_t                    alu_resp, agu_ld_resp, agu_st_resp;
   logic                        lsu_valid;        // LSU model answer
   fu_resp_t                    lsu_resp;
 
@@ -196,11 +199,16 @@ module backend_tb #(
       .clk, .reset, .flush,
       .wr (mem_wr), .wr_entry (mem_entry), .free (mem_free),
       .wb_valid, .wb_tag,
-      .agu_req_valid, .agu_req_ready, .agu_req,
-      .agu_req_lsq_idx, .agu_req_color,
-      .agu_read_tag   (rd_tag[5:4]),
-      .agu_read_valid (rd_valid[5:4]),
-      .agu_read_data  (rd_data[5:4])
+      .agu_ld_req_valid, .agu_ld_req_ready, .agu_ld_req,
+      .agu_ld_req_lsq_idx, .agu_ld_req_color,
+      .agu_ld_read_tag   (rd_tag[4]),
+      .agu_ld_read_valid (rd_valid[4]),
+      .agu_ld_read_data  (rd_data[4]),
+      .agu_st_req_valid, .agu_st_req_ready, .agu_st_req,
+      .agu_st_req_lsq_idx,
+      .agu_st_read_tag   (rd_tag[6:5]),
+      .agu_st_read_valid (rd_valid[6:5]),
+      .agu_st_read_data  (rd_data[6:5])
   );
 
   // The FUs flush selectively by age; the ROB flushes everything at commit.
@@ -211,12 +219,22 @@ module backend_tb #(
       .resp_valid (alu_resp_valid), .resp_ready (1'b1), .resp (alu_resp)
   );
 
-  agu u_agu (
+  // Two AGUs (wiki decision 17): loads and stores.
+  agu u_agu_ld (
       .clk, .reset, .flush, .flush_age ('0),
-      .req_valid (agu_req_valid), .req_ready (agu_req_ready), .req (agu_req),
-      .req_lsq_idx (agu_req_lsq_idx), .req_color (agu_req_color),
-      .resp_valid (agu_resp_valid), .resp_ready (1'b1), .resp (agu_resp),
-      .resp_is_load (), .resp_store_data (), .resp_op (agu_op),
+      .req_valid (agu_ld_req_valid), .req_ready (agu_ld_req_ready), .req (agu_ld_req),
+      .req_lsq_idx (agu_ld_req_lsq_idx), .req_color (agu_ld_req_color),
+      .resp_valid (agu_ld_resp_valid), .resp_ready (1'b1), .resp (agu_ld_resp),
+      .resp_is_load (), .resp_store_data (), .resp_op (agu_ld_op),
+      .resp_lsq_idx (), .resp_color ()
+  );
+
+  agu u_agu_st (
+      .clk, .reset, .flush, .flush_age ('0),
+      .req_valid (agu_st_req_valid), .req_ready (agu_st_req_ready), .req (agu_st_req),
+      .req_lsq_idx (agu_st_req_lsq_idx), .req_color ('0),
+      .resp_valid (agu_st_resp_valid), .resp_ready (1'b1), .resp (agu_st_resp),
+      .resp_is_load (), .resp_store_data (), .resp_op (),
       .resp_lsq_idx (), .resp_color ()
   );
 
@@ -236,10 +254,14 @@ module backend_tb #(
   assign wb_data[2]  = lsu_resp.result;
 
   // ROB responses. A load is done when its DATA arrives (port 3), not when
-  // the AGU computes the address: the AGU answers the ROB (port 2) only for
-  // stores and for exceptions. The op comes from the AGU's resp_op side port.
-  logic agu_is_load;
-  assign agu_is_load = is_load(agu_op);
+  // the AGU computes the address: port 2 takes the store AGU, or the load AGU
+  // only with an exception. This program raises no exception, so the two
+  // never contest port 2 (checked below) and no arbiter is needed here.
+  logic ld_exc;
+  assign ld_exc = agu_ld_resp_valid && agu_ld_resp.exception;
+  always @(posedge clk)
+    if (!reset && ld_exc && agu_st_resp_valid)
+      $fatal(1, "backend_tb: load exception and store on ROB port 2 in one cycle");
 
   logic [ROB_N-1:0]     resp_valid;
   fu_resp_t [ROB_N-1:0] resp;
@@ -247,8 +269,8 @@ module backend_tb #(
   assign resp[0]       = alu_resp;
   assign resp_valid[1] = 1'b0;
   assign resp[1]       = '0;
-  assign resp_valid[2] = agu_resp_valid && (!agu_is_load || agu_resp.exception);
-  assign resp[2]       = agu_resp;
+  assign resp_valid[2] = agu_st_resp_valid || ld_exc;
+  assign resp[2]       = ld_exc ? agu_ld_resp : agu_st_resp;
   assign resp_valid[3] = lsu_valid;
   assign resp[3]       = lsu_resp;
 
@@ -305,10 +327,10 @@ module backend_tb #(
       lsu_valid <= 1'b0; lsu_resp <= '0;
     end else begin
       cyc <= cyc + 1;
-      if (agu_resp_valid && agu_is_load && !agu_resp.exception) begin
+      if (agu_ld_resp_valid && !agu_ld_resp.exception) begin
         fu_resp_t r;
-        r        = agu_resp;
-        r.result = load_value(agu_op, agu_resp.result);
+        r        = agu_ld_resp;
+        r.result = load_value(agu_ld_op, agu_ld_resp.result);
         q_resp[q_tail % QN] <= r;
         q_due[q_tail % QN]  <= cyc + LSU_LAT;
         q_tail <= q_tail + 1;

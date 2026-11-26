@@ -1,12 +1,15 @@
-// Completion: takes the responses of the four result sources (ALU, Branch
-// Unit, AGU, load data from Memory) and, in the same cycle:
+// Completion: takes the responses of the five result sources (ALU, Branch
+// Unit, load AGU, store AGU, load data from Memory) and, in the same cycle:
 //   - drives the register write-back buses (PRFRename wb_*, RS wakeup), one
 //     per source that writes a register: ALU, Branch Unit, load;
-//   - drives the ROB response ports (retire_team resp_valid/resp), one per
-//     source that finishes an instruction: ALU, Branch Unit, AGU, load.
+//   - drives the ROB response ports (retire_team resp_valid/resp): ALU,
+//     Branch Unit, AGU (port 2, shared by the two AGUs), load.
 // Wiring table: rtl/issue/README.md. Spec: docs/completion/Completion.md.
 
-// STATUS: v1. agu_is_load comes from the agu resp_is_load output (Completion.md, item 1).
+// STATUS: v2. Two AGUs (wiki decision 17): the source tells a load from a
+// store, so there is no agu_is_load. ROB port 2 takes a store, or a load
+// with an exception; when both come in the same cycle the older wins and the
+// other gets resp_ready = 0 and comes back the next cycle (Completion.md).
 // Unused on purpose: clk and reset (Completion is combinational; every block
 // takes them).
 module completion
@@ -28,10 +31,13 @@ module completion
     output logic br_resp_ready,
     input  fu_resp_t br_resp,
 
-    input  logic agu_resp_valid,
-    output logic agu_resp_ready,
-    input  fu_resp_t agu_resp,
-    input  logic agu_is_load, // the AGU response is a load (valid with agu_resp_valid)
+    input  logic agu_ld_resp_valid, // load AGU: answers the ROB only with an exception
+    output logic agu_ld_resp_ready,
+    input  fu_resp_t agu_ld_resp,
+
+    input  logic agu_st_resp_valid, // store AGU: answers the ROB for every store
+    output logic agu_st_resp_ready,
+    input  fu_resp_t agu_st_resp,
 
     input  logic lsu_resp_valid, // load data back from Memory
     output logic lsu_resp_ready,
@@ -50,12 +56,12 @@ module completion
   logic unused;
   assign unused = &{1'b0, clk, reset};
 
-  // Always ready: PRFRename has no wb_ready, the ROB has no ready either, and
-  // every source has its own bus. A response is consumed in the cycle it is
-  // valid, also during a flush (when it is dropped).
+  // Always ready, except the loser of a port-2 contest (below): PRFRename has
+  // no wb_ready, the ROB has no ready either, and every other source has its
+  // own bus. A response is consumed in the cycle it is valid, also during a
+  // flush (when it is dropped).
   assign alu_resp_ready = 1'b1;
   assign br_resp_ready  = 1'b1;
-  assign agu_resp_ready = 1'b1;
   assign lsu_resp_ready = 1'b1;
 
   // Register write-back: bus 0 ALU, bus 1 Branch Unit, bus 2 load.
@@ -85,22 +91,37 @@ module completion
     assign wb_data[p] = r.result;
   end
 
+  // ROB port 2, shared by the two AGUs. The store AGU answers for every store;
+  // the load AGU only for an exception. A load without an exception finishes
+  // on port 3, when its data arrives: answering on port 2 would let the ROB
+  // commit the load before its register has a value.
+  // Both candidates in one cycle (a store finishes while a load raises a
+  // misalignment): the older goes out, the younger is held by its AGU
+  // (resp_ready = 0) and goes out the next cycle. During a flush both are
+  // consumed and dropped, as every other source.
+  logic ld_cand, st_cand, contest, ld_wins;
+
+  assign ld_cand = agu_ld_resp_valid && agu_ld_resp.exception;
+  assign st_cand = agu_st_resp_valid;
+  assign contest = ld_cand && st_cand;
+  assign ld_wins = ld_cand && (!st_cand || age_is_younger(agu_st_resp.age, agu_ld_resp.age));
+
+  assign agu_ld_resp_ready = flush || !(contest && !ld_wins);
+  assign agu_st_resp_ready = flush || !(contest &&  ld_wins);
+
   // ROB responses: port 0 ALU, 1 Branch Unit, 2 AGU, 3 load.
-  // The AGU answers only for stores and for exceptions. A load without an
-  // exception finishes on port 3, when its data arrives: answering on port 2
-  // would let the ROB commit the load before its register has a value.
   logic [ROB_N-1:0] rsrc_valid;
 
   assign rsrc_valid[0] = alu_resp_valid;
   assign rsrc_valid[1] = br_resp_valid;
-  assign rsrc_valid[2] = agu_resp_valid && (!agu_is_load || agu_resp.exception);
+  assign rsrc_valid[2] = ld_cand || st_cand;
   assign rsrc_valid[3] = lsu_resp_valid;
 
   assign rob_resp_valid = flush ? '0 : rsrc_valid;
 
   assign rob_resp[0] = alu_resp;
   assign rob_resp[1] = br_resp;
-  assign rob_resp[2] = agu_resp;
+  assign rob_resp[2] = ld_wins ? agu_ld_resp : agu_st_resp;
   assign rob_resp[3] = lsu_resp;
 
 endmodule

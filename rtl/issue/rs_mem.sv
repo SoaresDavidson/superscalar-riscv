@@ -1,12 +1,19 @@
 // Reservation station MEM: holds load and store instructions until both
-// sources are ready, then issues at most one per cycle to the AGU.
-// Spec: docs/rs/RS.md.
+// sources are ready, then issues at most one load and one store per cycle, to
+// the load AGU and the store AGU (wiki decision 17). Spec: docs/rs/RS.md.
 //
-// Same organization as rs_int (tags only, operands read at issue), with a
-// single selector. The entry's store/load buffer index and color (wiki
-// decision 17) leave beside agu_req, on agu_req_lsq_idx/agu_req_color. Loads use src1 (base); stores use src1 (base) and src2
-// (data), and issue only with both ready. A load's src2 is x0, ready from
-// Dispatch, so the same readiness rule covers both.
+// Same organization as rs_int (tags only, operands read at issue), with two
+// selectors: one among the ready loads, one among the ready stores, each
+// picking the OLDEST by age (age_is_younger). The order of issue does not
+// affect correctness (the store buffer and the load buffer accept any order),
+// but an old store issued late gives younger loads time to read stale data,
+// and every such violation costs a full flush.
+//
+// Loads use src1 (base) only, on one PRF read port; their src2 goes to the
+// AGU as 0. Stores use src1 (base) and src2 (data), and issue only with both
+// ready. A load's src2 is x0, ready from Dispatch, so the same readiness rule
+// covers both. The entry's store/load buffer index and color leave beside each
+// request (agu_*_req_lsq_idx, agu_ld_req_color); a store has no color.
 module rs_mem
   import execute_pkg::*;
   import dispatch_pkg::*;
@@ -31,17 +38,28 @@ module rs_mem
     input  logic [WB_N-1:0]            wb_valid,
     input  logic [WB_N-1:0][TAG_W-1:0] wb_tag,
 
-    // AGU: request and its two PRF read ports (PRFRename read ports 4 and 5)
-    output logic                       agu_req_valid,
-    input  logic                       agu_req_ready,
-    output fu_req_t                    agu_req,
-    output lsq_idx_t                   agu_req_lsq_idx,  // side fields of agu_req:
-    output sb_ptr_t                    agu_req_color,    // store/load buffer entry, color
-    output logic [1:0][TAG_W-1:0]      agu_read_tag,
+    // Load AGU: request and its PRF read port (base only)
+    output logic                       agu_ld_req_valid,
+    input  logic                       agu_ld_req_ready,
+    output fu_req_t                    agu_ld_req,
+    output lsq_idx_t                   agu_ld_req_lsq_idx,  // load buffer entry
+    output sb_ptr_t                    agu_ld_req_color,    // last older store entry
+    output logic [TAG_W-1:0]           agu_ld_read_tag,
     /* verilator lint_off UNUSEDSIGNAL */
-    input  logic [1:0]                 agu_read_valid,  // always 1 at issue, see RS.md
+    input  logic                       agu_ld_read_valid,   // always 1 at issue, see RS.md
     /* verilator lint_on UNUSEDSIGNAL */
-    input  logic [1:0][XLEN-1:0]       agu_read_data
+    input  logic [XLEN-1:0]            agu_ld_read_data,
+
+    // Store AGU: request and its two PRF read ports (base and data)
+    output logic                       agu_st_req_valid,
+    input  logic                       agu_st_req_ready,
+    output fu_req_t                    agu_st_req,
+    output lsq_idx_t                   agu_st_req_lsq_idx,  // store buffer entry
+    output logic [1:0][TAG_W-1:0]      agu_st_read_tag,
+    /* verilator lint_off UNUSEDSIGNAL */
+    input  logic [1:0]                 agu_st_read_valid,   // always 1 at issue, see RS.md
+    /* verilator lint_on UNUSEDSIGNAL */
+    input  logic [1:0][XLEN-1:0]       agu_st_read_data
 );
 
   // ---------------------------------------------------------------------------
@@ -52,15 +70,21 @@ module rs_mem
   // Per-entry flags. Fields are read from a copy of q[i] (Icarus cannot read
   // q[i].field with a variable index).
   logic [ENTRIES-1:0] busy;
-  logic [ENTRIES-1:0] rdy;
+  logic [ENTRIES-1:0] rdy_ld;   // ready load
+  logic [ENTRIES-1:0] rdy_st;   // ready store
+  age_t               age [ENTRIES];
 
   for (genvar i = 0; i < ENTRIES; i++) begin : g_entry
     /* verilator lint_off UNUSEDSIGNAL */
-    rs_mem_entry_t e;   // only busy and ready bits are read here
+    rs_mem_entry_t e;   // only busy, ready, op and age are read here
     /* verilator lint_on UNUSEDSIGNAL */
-    assign e          = q[i];
-    assign busy[i]    = e.busy;
-    assign rdy[i]     = e.busy && e.src1_ready && e.src2_ready;
+    logic          rdy;
+    assign e         = q[i];
+    assign busy[i]   = e.busy;
+    assign rdy       = e.busy && e.src1_ready && e.src2_ready;
+    assign rdy_ld[i] = rdy &&  is_load(e.op);
+    assign rdy_st[i] = rdy && !is_load(e.op);
+    assign age[i]    = e.age;
   end
 
   // Free entries at the start of the cycle. Entries freed by an issue in this
@@ -106,23 +130,35 @@ module rs_mem
   end
 
   // ---------------------------------------------------------------------------
-  // Select and issue: one selector (the AGU), lowest ready index first. The loop
-  // runs downward so the last match (the lowest index) wins. Ready bits are
+  // Select and issue: two selectors, each the oldest ready entry of its kind.
+  // The loop has no break: an entry replaces the best so far when the best is
+  // younger than it, so the oldest is left at the end. Ready bits are
   // registered, so an entry woken in this cycle issues in the next one.
   // ---------------------------------------------------------------------------
-  logic             found;
-  logic [IDX_W-1:0] idx;
+  logic             found_ld, found_st;
+  logic [IDX_W-1:0] idx_ld,   idx_st;
 
   always_comb begin
-    found = 1'b0;
-    idx   = '0;
-    for (int i = ENTRIES - 1; i >= 0; i--) begin
-      if (rdy[i]) begin found = 1'b1; idx = IDX_W'(i); end
+    found_ld = 1'b0;
+    found_st = 1'b0;
+    idx_ld   = '0;
+    idx_st   = '0;
+    for (int i = 0; i < ENTRIES; i++) begin
+      if (rdy_ld[i] && (!found_ld || age_is_younger(age[idx_ld], age[i]))) begin
+        found_ld = 1'b1;
+        idx_ld   = IDX_W'(i);
+      end
+      if (rdy_st[i] && (!found_st || age_is_younger(age[idx_st], age[i]))) begin
+        found_st = 1'b1;
+        idx_st   = IDX_W'(i);
+      end
     end
   end
 
-  rs_mem_entry_t sa;   // selected entry
-  assign sa = q[idx];
+  rs_mem_entry_t sl;   // selected load
+  rs_mem_entry_t ss;   // selected store
+  assign sl = q[idx_ld];
+  assign ss = q[idx_st];
 
   // Source tags and ready bits stay behind; the rest goes to the FU.
   /* verilator lint_off UNUSEDSIGNAL */
@@ -140,20 +176,25 @@ module rs_mem
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
 
-  assign agu_read_tag[0] = sa.src1_tag;
-  assign agu_read_tag[1] = sa.src2_tag;
+  assign agu_ld_read_tag    = sl.src1_tag;
+  assign agu_st_read_tag[0] = ss.src1_tag;
+  assign agu_st_read_tag[1] = ss.src2_tag;
 
-  // Memory side fields (wiki decision 17), beside agu_req: fu_req_t has no
-  // field for them. Valid with agu_req_valid.
-  assign agu_req_lsq_idx = sa.lsq_idx;
-  assign agu_req_color   = sa.color;
+  // No request during flush: the selected instructions are on the wrong path.
+  assign agu_ld_req_valid = found_ld && !flush;
+  assign agu_st_req_valid = found_st && !flush;
+  assign agu_ld_req       = make_req(sl, agu_ld_read_data, '0);
+  assign agu_st_req       = make_req(ss, agu_st_read_data[0], agu_st_read_data[1]);
 
-  // No request during flush: the selected instruction is on the wrong path.
-  assign agu_req_valid = found && !flush;
-  assign agu_req       = make_req(sa, agu_read_data[0], agu_read_data[1]);
+  // Memory side fields (wiki decision 17), beside the requests: fu_req_t has
+  // no field for them. Valid with the request's valid.
+  assign agu_ld_req_lsq_idx = sl.lsq_idx;
+  assign agu_ld_req_color   = sl.color;
+  assign agu_st_req_lsq_idx = ss.lsq_idx;
 
-  logic agu_issue;   // transfer to the FU at the next edge
-  assign agu_issue = agu_req_valid && agu_req_ready;
+  logic ld_issue, st_issue;   // transfers to the AGUs at the next edge
+  assign ld_issue = agu_ld_req_valid && agu_ld_req_ready;
+  assign st_issue = agu_st_req_valid && agu_st_req_ready;
 
   // ---------------------------------------------------------------------------
   // Wakeup: a source becomes ready at the edge when a write-back bus carries
@@ -192,9 +233,10 @@ module rs_mem
 
   // ---------------------------------------------------------------------------
   // State update. Reset and flush empty every entry, including a write of the
-  // same cycle. Otherwise each entry is written (alloc), freed (issued) or
-  // kept with its sources woken. An allocated entry was free at the start of
-  // the cycle, so it is never the one being issued.
+  // same cycle. Otherwise each entry is written (alloc), freed (issued by
+  // either selector; a load and a store may leave in the same cycle) or kept
+  // with its sources woken. An allocated entry was free at the start of the
+  // cycle, so it is never one being issued.
   // ---------------------------------------------------------------------------
   always_ff @(posedge clk) begin
     if (reset || flush) begin
@@ -202,7 +244,8 @@ module rs_mem
     end else begin
       for (int i = 0; i < ENTRIES; i++)
         if (alloc[i]) q[i] <= woken_in[i];
-        else if (agu_issue && idx == IDX_W'(i))
+        else if ((ld_issue && idx_ld == IDX_W'(i)) ||
+                 (st_issue && idx_st == IDX_W'(i)))
           q[i] <= '0;
         else q[i] <= woken_q[i];
     end

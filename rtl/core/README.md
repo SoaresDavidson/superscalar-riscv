@@ -7,9 +7,10 @@ deles, e o RTL definitivo entra no lugar quando ficar pronto.
 ```
 fetch -> PipeFifo -> decode -> dispatch -> PRFRename -> rs_int -> alu
                                                      -> rs_int -> (porta da Branch Unit)
-                                                     -> rs_mem -> agu -> (porta do Memory)
+                                                     -> rs_mem -> agu de load  -> (porta do Memory)
+                                                               -> agu de store -> (porta do Memory)
                                         -> retire_team (ROB) -> commit -> PRFRename
-alu / Branch Unit / agu / Memory -> completion -> PRFRename, RS, ROB
+alu / Branch Unit / agus / Memory -> completion -> PRFRename, RS, ROB
 ```
 
 Tipos: `rtl/execute/execute_pkg.sv` e `rtl/dispatch/dispatch_pkg.sv`.
@@ -51,12 +52,20 @@ Sem Branch Unit, ligue `br_req_ready = 0`: um desvio fica parado na RS INT.
 
 | Porta | Dir. | Significado |
 |---|---|---|
-| `agu_resp_valid`, `agu_resp` | saída | resposta da AGU: endereço em `result`, `dst_tag`, `wr_en`, `age` |
-| `agu_is_load` | saída | a resposta é de um load (`resp_is_load` da `agu`) |
-| `agu_store_data` | saída | dado do store (`src2`), válido com `agu_resp_valid` |
-| `agu_op` | saída | `op` do acesso: tamanho, sinal e direção |
-| `agu_lsq_idx` | saída | entrada no store buffer ou no load buffer; 0 até o Dispatch reservar as entradas |
-| `agu_color` | saída | cor do load; 0 até o Dispatch reservar |
+| `agu_ld_resp_valid`, `agu_ld_resp` | saída | resposta da AGU de load: endereço em `result`, `dst_tag`, `wr_en`, `age` |
+| `agu_ld_op` | saída | `op` do load: tamanho e sinal |
+| `agu_ld_lsq_idx` | saída | entrada no load buffer; 0 até o Dispatch reservar as entradas |
+| `agu_ld_color` | saída | cor do load; 0 até o Dispatch reservar |
+| `agu_st_resp_valid`, `agu_st_resp` | saída | resposta da AGU de store: endereço em `result`, `age` |
+| `agu_st_store_data` | saída | dado do store (`src2`) |
+| `agu_st_op` | saída | `op` do store: tamanho |
+| `agu_st_lsq_idx` | saída | entrada no store buffer; 0 até o Dispatch reservar |
+
+Uma resposta vale no ciclo em que o `valid` está em 1. A AGU só segura uma
+resposta quando a `completion` a faz esperar pela porta 2 do ROB, o que
+acontece só com um load com exceção ou com um store: um load sem exceção
+nunca fica parado. Com duas AGUs, `READ_N` passou a 7 (0–1 ALU, 2–3 Branch
+Unit, 4 AGU de load, 5–6 AGU de store).
 | `lsu_resp_valid`, `lsu_resp` | entrada | dado do load, já estendido, com os metadados da resposta da AGU |
 | `lsu_resp_ready` | saída | sempre 1 |
 | `st_commit[W]`, `ld_commit[W]` | saída | stores e loads que o ROB fez commit neste ciclo |
@@ -91,9 +100,9 @@ Sem Branch Unit, ligue `br_req_ready = 0`: um desvio fica parado na RS INT.
   passa a valer para as FUs; as RS só têm flush total (Issue, item 3).
 - **Memory**: especificado na wiki (decisão 17), sem RTL. A porta já leva o
   dado do store, o `op` e o índice e a cor da entrada; falta o Dispatch
-  reservar as entradas (`sb_*`/`lb_*`), então `agu_lsq_idx` e `agu_color`
+  reservar as entradas (`sb_*`/`lb_*`), então os índices e a cor
   saem em 0. O `core_tb` e o `core_isa_tb` tiram o tamanho do acesso de
-  `agu_op`.
+  `agu_ld_op`.
 - **`out_slot_kill`** do Decode fica desligado: os slots mortos já chegam com
   `uop.valid = 0` (rtl/decode/README.md).
 

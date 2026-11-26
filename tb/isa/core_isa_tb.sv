@@ -14,7 +14,7 @@
 //     RESET_PC, every other word a NOP (ADDI x0, x0, 0). mtvec (0) also holds
 //     NOPs: after a trap nothing visible may commit.
 //   - Memory: loads answer LSU_LAT cycles after the AGU, read from a byte
-//     array, with the access size from the AGU's agu_op. Stores never reach
+//     array, with the access size from the load AGU's agu_ld_op. Stores never reach
 //     the array: the model does not keep a store queue yet.
 //   - Branch Unit: absent (br_req_ready = 0), as the core expects without one.
 //
@@ -62,9 +62,9 @@ module core_isa_tb #(
   logic      br_req_valid, br_resp_ready;
   fu_req_t   br_req;
 
-  logic      agu_resp_valid, agu_is_load;
-  fu_resp_t  agu_resp;
-  exec_op_t  agu_op;
+  logic      agu_ld_resp_valid, agu_st_resp_valid;
+  fu_resp_t  agu_ld_resp, agu_st_resp;
+  exec_op_t  agu_ld_op;
   logic      lsu_valid, lsu_resp_ready;
   fu_resp_t  lsu_resp;
   logic [W-1:0] st_commit, ld_commit;
@@ -81,8 +81,10 @@ module core_isa_tb #(
       .br_req_valid, .br_req_ready (1'b0), .br_req,
       .br_resp_valid (1'b0), .br_resp_ready, .br_resp ('0),
       .br_redirect   ('0),
-      .agu_resp_valid, .agu_resp, .agu_is_load,
-      .agu_store_data (), .agu_op, .agu_lsq_idx (), .agu_color (),
+      .agu_ld_resp_valid, .agu_ld_resp, .agu_ld_op,
+      .agu_ld_lsq_idx (), .agu_ld_color (),
+      .agu_st_resp_valid, .agu_st_resp, .agu_st_store_data (), .agu_st_op (),
+      .agu_st_lsq_idx (),
       .lsu_resp_valid (lsu_valid), .lsu_resp_ready, .lsu_resp,
       .st_commit, .ld_commit, .lsu_ready (1'b1),
       .flush,
@@ -176,12 +178,12 @@ module core_isa_tb #(
       q_head    <= q_tail;               // drop every load in flight
       lsu_valid <= 1'b0;
     end else begin
-      if (agu_resp_valid && agu_is_load && !agu_resp.exception) begin
+      if (agu_ld_resp_valid && !agu_ld_resp.exception) begin
         fu_resp_t r;
         exec_op_t op;
-        r  = agu_resp;
-        op = agu_op;
-        r.result = dut_rd(agu_resp.result, op_size(op), op_uns(op));
+        r  = agu_ld_resp;
+        op = agu_ld_op;
+        r.result = dut_rd(agu_ld_resp.result, op_size(op), op_uns(op));
         q_resp[q_tail % QN] <= r;
         q_due[q_tail % QN]  <= cyc + LSU_LAT;
         q_tail <= q_tail + 1;

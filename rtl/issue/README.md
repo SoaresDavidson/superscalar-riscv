@@ -75,20 +75,22 @@ pelos loads.
 
 ### FU e portas de leitura do banco
 
-`rs_int` tem dois conjuntos, `alu_*` e `br_*`; `rs_mem` tem um, `agu_*`.
+`rs_int` tem dois conjuntos, `alu_*` e `br_*`; `rs_mem` também tem dois,
+`agu_ld_*` (AGU de load) e `agu_st_*` (AGU de store), decisão 17.
 
 | Porta | Dir. | Significado |
 |---|---|---|
 | `*_req_valid` | saída | há uma instrução pronta para a FU |
 | `*_req_ready` | entrada | a FU aceita; transferência na borda com os dois em 1 |
 | `*_req` | saída | `fu_req_t` da instrução selecionada |
-| `agu_req_lsq_idx`, `agu_req_color` | saída | só na `rs_mem`: `lsq_idx` e `color` da entrada selecionada, ao lado do `agu_req` (decisão 17). Vão para `req_lsq_idx`/`req_color` da `agu` |
-| `*_read_tag[2]` | saída | tags das fontes 1 e 2 da instrução selecionada |
+| `agu_ld_req_lsq_idx`, `agu_ld_req_color` | saída | só na `rs_mem`: `lsq_idx` e `color` do load selecionado, ao lado do `agu_ld_req` (decisão 17). Vão para `req_lsq_idx`/`req_color` da AGU de load |
+| `agu_st_req_lsq_idx` | saída | só na `rs_mem`: `lsq_idx` do store selecionado, ao lado do `agu_st_req`. Vai para `req_lsq_idx` da AGU de store |
+| `*_read_tag[2]` | saída | tags das fontes 1 e 2 da instrução selecionada; `agu_ld_read_tag` tem uma só (a base) |
 | `*_read_valid[2]` | entrada | não usada: sai sempre 1 na emissão (`RS.md`) |
-| `*_read_data[2]` | entrada | valores lidos; vão para `src1` e `src2` do `fu_req_t` |
+| `*_read_data[2]` | entrada | valores lidos; vão para `src1` e `src2` do `fu_req_t`. No load, `src2` vai em 0 |
 
-Portas de leitura do `PRFRename` (`READ_N = 6`): 0 e 1 para `alu_*`, 2 e 3 para
-`br_*`, 4 e 5 para `agu_*`.
+Portas de leitura do `PRFRename` (`READ_N = 7`): 0 e 1 para `alu_*`, 2 e 3 para
+`br_*`, 4 para `agu_ld_*`, 5 e 6 para `agu_st_*`.
 
 ## Comportamento
 
@@ -98,7 +100,7 @@ As entradas guardam só tags (decisão 16 da wiki). Todo ciclo:
 |---|---|
 | Alocação | a k-ésima instrução com `wr = 1` ocupa a k-ésima entrada livre no começo do ciclo, contando da entrada 0 |
 | Wakeup | uma fonte com `ready = 0` fica pronta na borda em que um barramento traz `wb_valid = 1` e a sua tag; vale também para a entrada escrita no mesmo ciclo |
-| Seleção | por FU, a entrada pronta (`busy` e as duas fontes prontas) de menor índice; os bits de pronto são os registrados, então quem acorda num ciclo só sai no seguinte |
+| Seleção | por FU, entre as entradas prontas (`busy` e as duas fontes prontas). Na `rs_int`, a de menor índice; na `rs_mem`, a mais antiga pelo `age` (`age_is_younger`), uma entre os loads e uma entre os stores, que podem sair no mesmo ciclo. Os bits de pronto são os registrados, então quem acorda num ciclo só sai no seguinte |
 | Emissão | as tags da entrada selecionada vão para `*_read_tag`; o `fu_req_t` sai no mesmo ciclo com `read_data`; na transferência a entrada fica livre |
 | Livres | `free` conta `busy = 0` no começo do ciclo; a entrada liberada por uma emissão aparece no ciclo seguinte |
 | Reset e flush | esvaziam todas as entradas, inclusive uma escrita do mesmo ciclo |
@@ -125,11 +127,12 @@ Ver `docs/rs/RS.md`, "Pontos em aberto". As que mudam esta interface:
 
 - **Organização e tamanhos** (item 0): proposta enviada ao grupo; falta o
   registro em `Decisoes-de-Projeto`.
-- **Seleção pela mais antiga** (item 1): o `age` já chega do ROB pelo
-  dispatch; a seleção continua pelo índice.
+- **Seleção pela mais antiga** (item 1): feita na `rs_mem`; a `rs_int`
+  continua pelo índice.
 - **Flush seletivo** (item 3): exigiria uma entrada `flush_age`.
-- **Ordem na RS MEM** (item 4): hoje loads e stores saem pelo menor índice,
-  sem respeitar a ordem do programa.
+- ~~**Ordem na RS MEM** (item 4)~~: resolvido pela decisão 17. O store
+  buffer e o load buffer aceitam qualquer ordem; a `rs_mem` emite o load e o
+  store mais antigos, o que reduz as violações.
 - **`pred_taken` / `pred_target`**: chegam em zero até o Fetch prever desvios.
 
 ## Testes

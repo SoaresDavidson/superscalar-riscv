@@ -2,21 +2,25 @@
 //
 //   fetch -> PipeFifo -> decode -> dispatch -> PRFRename -> rs_int -> alu
 //                                                        -> rs_int -> (Branch Unit port)
-//                                                        -> rs_mem -> agu -> (Memory port)
+//                                                        -> rs_mem -> agu (load)  -> (Memory port)
+//                                                                  -> agu (store) -> (Memory port)
 //                                           -> retire_team (ROB) -> commit -> PRFRename
-//   alu / Branch Unit / agu / Memory -> completion -> PRFRename, RS wakeup, ROB
+//   alu / Branch Unit / agus / Memory -> completion -> PRFRename, RS wakeup, ROB
 //
 // Blocks that do not exist yet are ports of the core, so a testbench (or the
 // future RTL) plays them:
 //   - instruction memory: synchronous, one read port per slot (fetch);
 //   - Branch Unit: takes br_req from rs_int, answers on br_resp and drives
 //     the ROB redirect input;
-//   - Memory: takes the AGU response (address, tag, age; agu_is_load tells a
-//     load from a store) with its side fields (agu_store_data, agu_op,
-//     agu_lsq_idx, agu_color; wiki Memory.md, "Alocação no dispatch:
-//     interface") and answers loads on lsu_resp; st_commit/ld_commit tell it
-//     what the ROB committed. The store/load buffer reservation at dispatch
-//     is not wired yet: agu_lsq_idx and agu_color are 0 until it is.
+//   - Memory: takes the responses of the load AGU (agu_ld_*) and of the
+//     store AGU (agu_st_*), each with its side fields (op, store/load buffer
+//     entry, color for a load, store data for a store; wiki Memory.md,
+//     "Alocação no dispatch: interface"), and answers loads on lsu_resp;
+//     st_commit/ld_commit tell it what the ROB committed. A response is
+//     transferred when its valid is high: the AGU only holds one when the
+//     Completion makes it wait for ROB port 2, which happens only to a load
+//     with an exception or to a store. The store/load buffer reservation at
+//     dispatch is not wired yet: the entries and colors are 0 until it is.
 //
 // Flush: the ROB flush is total (it empties the pipeline at commit). Every
 // block flushes on it. The FUs only know the selective flush by age, so the
@@ -51,14 +55,19 @@ module core
     input  fu_resp_t                br_resp,
     input  redirect_t               br_redirect,
 
-    // Memory
-    output logic                    agu_resp_valid,
-    output fu_resp_t                agu_resp,
-    output logic                    agu_is_load,
-    output xlen_t                   agu_store_data,  // store data (src2)
-    output exec_op_t                agu_op,          // access size, sign, direction
-    output lsq_idx_t                agu_lsq_idx,     // store/load buffer entry
-    output sb_ptr_t                 agu_color,       // load: last older store entry
+    // Memory: load AGU
+    output logic                    agu_ld_resp_valid,
+    output fu_resp_t                agu_ld_resp,     // address in result
+    output exec_op_t                agu_ld_op,       // access size and sign
+    output lsq_idx_t                agu_ld_lsq_idx,  // load buffer entry
+    output sb_ptr_t                 agu_ld_color,    // last older store entry
+    // Memory: store AGU
+    output logic                    agu_st_resp_valid,
+    output fu_resp_t                agu_st_resp,     // address in result
+    output xlen_t                   agu_st_store_data,
+    output exec_op_t                agu_st_op,       // access size
+    output lsq_idx_t                agu_st_lsq_idx,  // store buffer entry
+    // Memory: load data and commit
     input  logic                    lsu_resp_valid,
     output logic                    lsu_resp_ready,
     input  fu_resp_t                lsu_resp,
@@ -75,7 +84,7 @@ module core
 );
 
   localparam int WB_N   = 3;   // write-back buses: ALU, Branch Unit, load
-  localparam int READ_N = 6;   // PRF read ports: 0-1 ALU, 2-3 Branch Unit, 4-5 AGU
+  localparam int READ_N = 7;   // PRF read ports: 0-1 ALU, 2-3 Branch Unit, 4 load AGU, 5-6 store AGU
   localparam int ROB_N  = 4;   // ROB response ports: ALU, Branch Unit, AGU, load
   localparam int FQ_W   = W + W * XLEN + W * 32;   // {slot_valid, pc, inst}
 
@@ -144,15 +153,18 @@ module core
   // RS -> FUs
   logic                        alu_rs_valid, alu_req_ready;
   fu_req_t                     alu_req;
-  logic                        agu_rs_valid, agu_req_ready;
-  fu_req_t                     agu_req;
-  lsq_idx_t                    agu_req_lsq_idx;
-  sb_ptr_t                     agu_req_color;
+  logic                        agu_ld_rs_valid, agu_ld_req_ready;
+  fu_req_t                     agu_ld_req;
+  lsq_idx_t                    agu_ld_req_lsq_idx;
+  sb_ptr_t                     agu_ld_req_color;
+  logic                        agu_st_rs_valid, agu_st_req_ready;
+  fu_req_t                     agu_st_req;
+  lsq_idx_t                    agu_st_req_lsq_idx;
 
   // FUs -> completion
   logic                        alu_resp_valid, alu_resp_ready;
   fu_resp_t                    alu_resp;
-  logic                        agu_resp_ready;
+  logic                        agu_ld_resp_ready, agu_st_resp_ready;
 
   // completion -> ROB
   logic [ROB_N-1:0]            rob_resp_valid;
@@ -272,13 +284,20 @@ module core
       .clk, .reset, .flush,
       .wr (mem_wr), .wr_entry (mem_entry), .free (mem_free),
       .wb_valid, .wb_tag,
-      .agu_req_valid  (agu_rs_valid),
-      .agu_req_ready,
-      .agu_req,
-      .agu_req_lsq_idx, .agu_req_color,
-      .agu_read_tag   (rd_tag[5:4]),
-      .agu_read_valid (rd_valid[5:4]),
-      .agu_read_data  (rd_data[5:4])
+      .agu_ld_req_valid  (agu_ld_rs_valid),
+      .agu_ld_req_ready,
+      .agu_ld_req,
+      .agu_ld_req_lsq_idx, .agu_ld_req_color,
+      .agu_ld_read_tag   (rd_tag[4]),
+      .agu_ld_read_valid (rd_valid[4]),
+      .agu_ld_read_data  (rd_data[4]),
+      .agu_st_req_valid  (agu_st_rs_valid),
+      .agu_st_req_ready,
+      .agu_st_req,
+      .agu_st_req_lsq_idx,
+      .agu_st_read_tag   (rd_tag[6:5]),
+      .agu_st_read_valid (rd_valid[6:5]),
+      .agu_st_read_data  (rd_data[6:5])
   );
 
   // ---------------------------------------------------------------------------
@@ -295,21 +314,40 @@ module core
       .resp       (alu_resp)
   );
 
-  agu u_agu (
+  // Two AGUs (wiki decision 17): one for loads, one for stores. resp_is_load
+  // is not needed: the AGU a response comes from tells its kind.
+  agu u_agu_ld (
       .clk, .reset, .flush, .flush_age ('0),
-      .req_valid    (agu_rs_valid && !flush),
-      .req_ready    (agu_req_ready),
-      .req          (agu_req),
-      .req_lsq_idx  (agu_req_lsq_idx),
-      .req_color    (agu_req_color),
-      .resp_valid   (agu_resp_valid),
-      .resp_ready   (agu_resp_ready),
-      .resp         (agu_resp),
-      .resp_is_load (agu_is_load),
-      .resp_store_data (agu_store_data),
-      .resp_op      (agu_op),
-      .resp_lsq_idx (agu_lsq_idx),
-      .resp_color   (agu_color)
+      .req_valid    (agu_ld_rs_valid && !flush),
+      .req_ready    (agu_ld_req_ready),
+      .req          (agu_ld_req),
+      .req_lsq_idx  (agu_ld_req_lsq_idx),
+      .req_color    (agu_ld_req_color),
+      .resp_valid   (agu_ld_resp_valid),
+      .resp_ready   (agu_ld_resp_ready),
+      .resp         (agu_ld_resp),
+      .resp_is_load (),
+      .resp_store_data (),
+      .resp_op      (agu_ld_op),
+      .resp_lsq_idx (agu_ld_lsq_idx),
+      .resp_color   (agu_ld_color)
+  );
+
+  agu u_agu_st (
+      .clk, .reset, .flush, .flush_age ('0),
+      .req_valid    (agu_st_rs_valid && !flush),
+      .req_ready    (agu_st_req_ready),
+      .req          (agu_st_req),
+      .req_lsq_idx  (agu_st_req_lsq_idx),
+      .req_color    ('0),
+      .resp_valid   (agu_st_resp_valid),
+      .resp_ready   (agu_st_resp_ready),
+      .resp         (agu_st_resp),
+      .resp_is_load (),
+      .resp_store_data (agu_st_store_data),
+      .resp_op      (agu_st_op),
+      .resp_lsq_idx (agu_st_lsq_idx),
+      .resp_color   ()
   );
 
   // ---------------------------------------------------------------------------
@@ -319,7 +357,8 @@ module core
       .clk, .reset, .flush,
       .alu_resp_valid, .alu_resp_ready, .alu_resp,
       .br_resp_valid,  .br_resp_ready,  .br_resp,
-      .agu_resp_valid, .agu_resp_ready, .agu_resp, .agu_is_load,
+      .agu_ld_resp_valid, .agu_ld_resp_ready, .agu_ld_resp,
+      .agu_st_resp_valid, .agu_st_resp_ready, .agu_st_resp,
       .lsu_resp_valid, .lsu_resp_ready, .lsu_resp,
       .wb_valid, .wb_tag, .wb_data,
       .rob_resp_valid, .rob_resp
