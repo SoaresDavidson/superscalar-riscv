@@ -42,28 +42,28 @@ PARAMS_fetch := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
 
 T ?= $(UNIT_TESTS) $(INTEGRATION_TESTS)
 
-# Physical design runs inside the LibreLane image (Dockerfile.pnr); the host
-# needs only docker and a Ciel PDK folder. PNR_CONFIG picks the block's
+# Physical design runs inside the LibreLane image (Dockerfile.librelane); the host
+# needs only docker and a Ciel PDK folder. LIBRELANE_CONFIG picks the block's
 # config, relative to the repository root. Without it, the target runs the
 # LibreLane `spm` example in build/spm: a check that the flow and the PDK work.
 # The core top (rtl/core) has no config yet: Branch Unit and Memory are still
 # ports, not RTL.
-PNR_IMAGE  := superscalar-riscv-pnr
-PNR_CONFIG ?=
+LIBRELANE_IMAGE  := superscalar-riscv-librelane
+LIBRELANE_CONFIG ?=
 PDK_ROOT   ?= $(HOME)/.ciel
-PNR_ARGS   := $(if $(PNR_CONFIG),/work/$(PNR_CONFIG),--run-example spm)
-PNR_RUN    := docker run --rm --user "$$(id -u):$$(id -g)" -e HOME=/tmp \
+LIBRELANE_ARGS   := $(if $(LIBRELANE_CONFIG),/work/$(LIBRELANE_CONFIG),--run-example spm)
+LIBRELANE_RUN    := docker run --rm --user "$$(id -u):$$(id -g)" -e HOME=/tmp \
 	  -e PDK_ROOT=/pdk -v "$(PDK_ROOT)":/pdk -v "$(CURDIR)":/work
 
-# pnr-all runs every rtl/*/config*.json, one LibreLane per config; with -jN,
+# librelane-all runs every rtl/*/config*.json, one LibreLane per config; with -jN,
 # N at once. Each run lands in runs/ next to its config. Two configs share a
 # folder (execute/, issue/), so the run tag carries the config name, plus one
 # timestamp per make invocation so no run overwrites an older one.
-PNR_CONFIGS := $(wildcard rtl/*/config*.json)
-PNR_STAMP   := $(shell date +%Y-%m-%d_%H-%M-%S)
+LIBRELANE_CONFIGS := $(wildcard rtl/*/config*.json)
+LIBRELANE_STAMP   := $(shell date +%Y-%m-%d_%H-%M-%S)
 
-.PHONY: test test-unit test-integration test-isa lint pnr pnr-image pnr-all pnr-status clean $(TESTS)
-.PHONY: $(PNR_CONFIGS:%=pnr-run/%)
+.PHONY: test test-unit test-integration test-isa lint librelane librelane-image librelane-all librelane-status clean $(TESTS)
+.PHONY: $(LIBRELANE_CONFIGS:%=librelane-run/%)
 
 test: $(T)
 test-unit: $(UNIT_TESTS)
@@ -87,34 +87,34 @@ lint:
 
 # Runs as the host user so the outputs in runs/ are not owned by root.
 # --run-example refuses to overwrite an existing copy, hence the rm.
-pnr: pnr-image | $(BUILD)
-	$(if $(PNR_CONFIG),,rm -rf $(BUILD)/spm)
-	$(PNR_RUN) -w /work/$(BUILD) $(PNR_IMAGE) librelane $(PNR_ARGS)
+librelane: librelane-image | $(BUILD)
+	$(if $(LIBRELANE_CONFIG),,rm -rf $(BUILD)/spm)
+	$(LIBRELANE_RUN) -w /work/$(BUILD) $(LIBRELANE_IMAGE) librelane $(LIBRELANE_ARGS)
 
 # A separate target so that, under -j, the image is built once before any run.
-pnr-image:
-	docker build -f Dockerfile.pnr -t $(PNR_IMAGE) .
+librelane-image:
+	docker build -f Dockerfile.librelane -t $(LIBRELANE_IMAGE) .
 
-pnr-all: $(PNR_CONFIGS:%=pnr-run/%)
+librelane-all: $(LIBRELANE_CONFIGS:%=librelane-run/%)
 
 # The console output is discarded: LibreLane already writes it to flow.log in
 # the run folder (and each step's log to its own folder). Only a failure
 # before the run folder exists (bad JSON, missing file, docker error) is lost;
-# rerun that config alone with `make pnr PNR_CONFIG=...` to see it.
-$(PNR_CONFIGS:%=pnr-run/%): pnr-run/%: pnr-image
-	@echo "pnr: $* started"
-	@$(PNR_RUN) -w /work $(PNR_IMAGE) librelane --hide-progress-bar \
-	  --run-tag $(basename $(notdir $*))_$(PNR_STAMP) /work/$* > /dev/null 2>&1 \
-	  && echo "pnr: $* OK" \
-	  || { echo "pnr: $* FAIL, see $(dir $*)runs/$(basename $(notdir $*))_$(PNR_STAMP)/flow.log"; exit 1; }
+# rerun that config alone with `make librelane LIBRELANE_CONFIG=...` to see it.
+$(LIBRELANE_CONFIGS:%=librelane-run/%): librelane-run/%: librelane-image
+	@echo "librelane: $* started"
+	@$(LIBRELANE_RUN) -w /work $(LIBRELANE_IMAGE) librelane --hide-progress-bar \
+	  --run-tag $(basename $(notdir $*))_$(LIBRELANE_STAMP) /work/$* > /dev/null 2>&1 \
+	  && echo "librelane: $* OK" \
+	  || { echo "librelane: $* FAIL, see $(dir $*)runs/$(basename $(notdir $*))_$(LIBRELANE_STAMP)/flow.log"; exit 1; }
 
 # Progress of the latest run of each config: steps done and the current step.
 # A full Classic run of these configs creates 74 step folders (80 steps, 6
 # gated off), so the total is approximate for a config with other RUN_* flags.
-# A run killed midway keeps showing "running". Use: watch -n 10 make -s pnr-status
-PNR_STEPS := 74
-pnr-status:
-	@for c in $(PNR_CONFIGS); do \
+# A run killed midway keeps showing "running". Use: watch -n 10 make -s librelane-status
+LIBRELANE_STEPS := 74
+librelane-status:
+	@for c in $(LIBRELANE_CONFIGS); do \
 	  r=$$(ls -td $$(dirname $$c)/runs/$$(basename $$c .json)_*/ 2>/dev/null | head -1); \
 	  if [ -z "$$r" ]; then s="not run"; n=0; step=-; else \
 	    n=$$(find $$r -maxdepth 1 -name '[0-9]*-*' | wc -l); \
@@ -122,7 +122,7 @@ pnr-status:
 	    if tail -1 $$r/flow.log 2>/dev/null | grep -q 'Flow complete'; then s=done; \
 	    elif [ -s $$r/error.log ]; then s=FAIL; else s=running; fi; \
 	  fi; \
-	  printf '%-30s %-8s %3s/%s  %s\n' $$c "$$s" $$n $(PNR_STEPS) "$$step"; \
+	  printf '%-30s %-8s %3s/%s  %s\n' $$c "$$s" $$n $(LIBRELANE_STEPS) "$$step"; \
 	done
 
 $(BUILD):

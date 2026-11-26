@@ -74,19 +74,21 @@ docker run --rm -it -v "$PWD":/work superscalar-riscv bash   # shell no containe
 
 ### Síntese física (LibreLane)
 
-`make pnr` roda o LibreLane 3.0.17 dentro da imagem oficial
-(`Dockerfile.pnr`). A máquina precisa só de docker e de um PDK baixado pelo
-Ciel em `~/.ciel` (outro caminho: `make pnr PDK_ROOT=/caminho`).
+`make librelane` roda o LibreLane 3.0.17 dentro da imagem oficial
+(`Dockerfile.librelane`). A máquina precisa só de docker e de um PDK baixado pelo
+Ciel em `~/.ciel` (outro caminho: `make librelane PDK_ROOT=/caminho`).
 
-Sem argumentos, `make pnr` roda o exemplo `spm` do LibreLane em
+Sem argumentos, `make librelane` roda o exemplo `spm` do LibreLane em
 `build/spm`, só para conferir que o flow e o PDK funcionam. O topo
 `rtl/core` ainda não tem config: a Branch Unit e o Memory não existem e
 aparecem nele como portas. Para rodar o flow de um bloco, passe a config dele, com caminho a
 partir da raiz do repositório:
 
 ```sh
-make pnr                                     # exemplo spm
-make pnr PNR_CONFIG=rtl/rename/config.json   # bloco de rename
+make librelane                                     # exemplo spm
+make librelane LIBRELANE_CONFIG=rtl/rename/config.json   # bloco de rename
+make librelane-all -j4                             # todas as configs rtl/*/config*.json
+make -s librelane-status                           # progresso da última rodada de cada config
 ```
 
 Os resultados ficam em `runs/`, ao lado da config.

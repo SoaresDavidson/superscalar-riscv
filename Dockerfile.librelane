@@ -4,11 +4,11 @@
 #
 # The PDK is NOT in the image (several GB). It is mounted from the host Ciel
 # folder, and the repository is mounted at /work, so run outputs land in the
-# host tree. `make pnr` builds and runs this image; by hand:
-#   docker build -f Dockerfile.pnr -t superscalar-riscv-pnr .
+# host tree. `make librelane` builds and runs this image; by hand:
+#   docker build -f Dockerfile.librelane -t superscalar-riscv-librelane .
 #   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
 #     -e PDK_ROOT=/pdk -v ~/.ciel:/pdk -v "$PWD":/work \
-#     superscalar-riscv-pnr librelane /work/rtl/rename/config.json
+#     superscalar-riscv-librelane librelane /work/rtl/rename/config.json
 FROM ghcr.io/librelane/librelane:3.0.17
 
 WORKDIR /work
