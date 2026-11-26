@@ -205,10 +205,10 @@ até os pinos na borda; dentro do `core`, esses sinais viram fios internos.
    sai da RS MEM só com os dois operandos prontos, e a AGU repassa o dado
    (`agu_store_data`). Na etapa 2, se as violações pesarem, o dispatch separa
    o store em STA e STD.
-10. **Alocação no store buffer e no load buffer** (decisão 17). Especificada
-    acima e na wiki ([[Memory]], "Alocação no dispatch: interface"); falta o
-    RTL. Muda as portas do dispatch (`sb_*`, `lb_*`) e o `rs_mem_entry_t`
-    (`lsq_idx`, `color`).
+10. ~~**Alocação no store buffer e no load buffer**~~ **Feito** (decisão 17):
+    portas `sb_*` e `lb_*` no `dispatch.sv` e campos `lsq_idx` e `color` no
+    `rs_mem_entry_t`. No `core`, os buffers ainda não existem: `sb_free` e
+    `lb_free` ficam no máximo e as caudas em 0 até o Memory ser ligado.
 
 **Resolvidos na reunião de alinhamento** (AGENTS.md, 06/11): sem
 multiplicador (a extensão M é ilegal); instruções de sistema vão para o

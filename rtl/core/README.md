@@ -54,12 +54,12 @@ Sem Branch Unit, ligue `br_req_ready = 0`: um desvio fica parado na RS INT.
 |---|---|---|
 | `agu_ld_resp_valid`, `agu_ld_resp` | saída | resposta da AGU de load: endereço em `result`, `dst_tag`, `wr_en`, `age` |
 | `agu_ld_op` | saída | `op` do load: tamanho e sinal |
-| `agu_ld_lsq_idx` | saída | entrada no load buffer; 0 até o Dispatch reservar as entradas |
-| `agu_ld_color` | saída | cor do load; 0 até o Dispatch reservar |
+| `agu_ld_lsq_idx` | saída | entrada no load buffer, calculada pelo Dispatch; sem significado até o load buffer entrar no core (a cauda fica em 0) |
+| `agu_ld_color` | saída | cor do load; sem significado até o store buffer entrar no core |
 | `agu_st_resp_valid`, `agu_st_resp` | saída | resposta da AGU de store: endereço em `result`, `age` |
 | `agu_st_store_data` | saída | dado do store (`src2`) |
 | `agu_st_op` | saída | `op` do store: tamanho |
-| `agu_st_lsq_idx` | saída | entrada no store buffer; 0 até o Dispatch reservar |
+| `agu_st_lsq_idx` | saída | entrada no store buffer, calculada pelo Dispatch; sem significado até o store buffer entrar no core |
 
 Uma resposta vale no ciclo em que o `valid` está em 1. A AGU só segura uma
 resposta quando a `completion` a faz esperar pela porta 2 do ROB, o que
@@ -98,11 +98,12 @@ Unit, 4 AGU de load, 5–6 AGU de store).
 
 - **Branch Unit**: não existe. Com ela, o flush seletivo por `redirect.age`
   passa a valer para as FUs; as RS só têm flush total (Issue, item 3).
-- **Memory**: especificado na wiki (decisão 17), sem RTL. A porta já leva o
-  dado do store, o `op` e o índice e a cor da entrada; falta o Dispatch
-  reservar as entradas (`sb_*`/`lb_*`), então os índices e a cor
-  saem em 0. O `core_tb` e o `core_isa_tb` tiram o tamanho do acesso de
-  `agu_ld_op`.
+- **Memory**: especificado na wiki (decisão 17). O `store_buffer`
+  (`rtl/memory/`) existe e é testado sozinho, mas ainda não está no `core`.
+  O Dispatch já reserva e calcula índice e cor; no `core`, `sb_free` e
+  `lb_free` ficam no máximo e as caudas em 0, então os índices e a cor ainda
+  não têm significado. O `core_tb` e o `core_isa_tb` tiram o tamanho do
+  acesso de `agu_ld_op`.
 - **`out_slot_kill`** do Decode fica desligado: os slots mortos já chegam com
   `uop.valid = 0` (rtl/decode/README.md).
 

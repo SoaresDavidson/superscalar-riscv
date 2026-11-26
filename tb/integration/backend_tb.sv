@@ -152,7 +152,10 @@ module backend_tb #(
       .ren_dst_tag, .ren_old_tag,
       .rob_free, .rob_age, .rob_alloc, .rob_entry, .rob_uop,
       .int_free, .int_wr, .int_entry,
-      .mem_free, .mem_wr, .mem_entry
+      .mem_free, .mem_wr, .mem_entry,
+      // No store buffer or load buffer here: always room, indices unused.
+      .sb_free  ($clog2(SB_ENTRIES + 1)'(SB_ENTRIES)), .sb_tail ('0), .sb_alloc (),
+      .lb_free  ($clog2(LB_ENTRIES + 1)'(LB_ENTRIES)), .lb_tail ('0), .lb_alloc ()
   );
 
   PRFRename #(.XLEN(XLEN), .ENTRIES(PRF_ENTRIES), .W(W), .WB_N(WB_N), .READ_N(READ_N)) u_rename (

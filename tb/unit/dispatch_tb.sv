@@ -13,6 +13,8 @@
 //   A1..A8  acceptance: when the bundle enters and which ready signals rise
 //           (table-driven: one accept_case line per case)
 //   C1..C4  contents: what Dispatch sends to Rename, to each RS and to the ROB
+//   L1..L7  store buffer and load buffer reservation (decision 17): masks,
+//           index and color of each slot, wrap of the index, full buffers
 
 module dispatch_tb;
   import execute_pkg::*;
@@ -25,6 +27,8 @@ module dispatch_tb;
   localparam int ROB_CNT_W = $clog2(ROB_ENTRIES + 1);
   localparam int INT_CNT_W = $clog2(RS_INT_ENTRIES + 1);
   localparam int MEM_CNT_W = $clog2(RS_MEM_ENTRIES + 1);
+  localparam int SB_CNT_W  = $clog2(SB_ENTRIES + 1);
+  localparam int LB_CNT_W  = $clog2(LB_ENTRIES + 1);
 
   // ---------------------------------------------------------------------------
   // DUT ports
@@ -58,6 +62,13 @@ module dispatch_tb;
   logic [W-1:0]             mem_wr;
   rs_mem_entry_t [W-1:0]    mem_entry;
 
+  logic [SB_CNT_W-1:0]      sb_free;
+  sb_ptr_t                  sb_tail;
+  logic [W-1:0]             sb_alloc;
+  logic [LB_CNT_W-1:0]      lb_free;
+  lb_ptr_t                  lb_tail;
+  logic [W-1:0]             lb_alloc;
+
   always #5 clk = ~clk;
 
   dispatch #(
@@ -90,6 +101,15 @@ module dispatch_tb;
     rs_mem_entry_t e;
     e = mem_entry[k];
     return e;
+  endfunction
+
+  // Store buffer and load buffer pointers: wrap bit and index.
+  function automatic sb_ptr_t sb(logic w, int i);
+    return {w, (SB_PTR_W-1)'(i)};
+  endfunction
+
+  function automatic lsq_idx_t lb(logic w, int i);
+    return lsq_idx_t'({w, (LB_PTR_W-1)'(i)});
   endfunction
 
   function automatic rob_entry_t rob_at(int k);
@@ -200,6 +220,10 @@ module dispatch_tb;
       rob_age[k] = AGE_W'(8'h60 + 2 * k);  // as the ROB gives them: distinct per slot
     int_free           = INT_CNT_W'(RS_INT_ENTRIES);
     mem_free           = MEM_CNT_W'(RS_MEM_ENTRIES);
+    sb_free            = SB_CNT_W'(SB_ENTRIES);
+    sb_tail            = '0;
+    lb_free            = LB_CNT_W'(LB_ENTRIES);
+    lb_tail            = '0;
     ren_dispatch_ready = 1'b1;
     ren_src_ready      = '1;
     for (int k = 0; k < W; k++) begin
@@ -425,6 +449,129 @@ module dispatch_tb;
     chk(er.dst_tag === TAG_W'(42),    "add: dst_tag (slot 2) from Rename");
     chk(er.old_tag === TAG_W'(52),    "add: old_tag (slot 2), freed at commit");
     chk(rob_uop === dec_uop,          "rob_uop repeats the bundle for the ROB");
+
+    // L1: sw, lw, sd. The stores take store buffer entries 10 and 11 in
+    // program order; the load takes load buffer entry 3, and its color is
+    // the store of slot 0 (the last store allocated before it).
+    cur = "L1 indices and color";
+    env_all_free();
+    sb_tail    = sb(1'b0, 10);
+    lb_tail    = lb(1'b0, 3);
+    dec_uop[0] = i_sw(5'd6, 5'd5);
+    dec_uop[1] = i_lw(5'd7, 5'd5);
+    dec_uop[2] = i_sd(5'd8, 5'd5);
+    #1;
+    chk(dec_ready === 1'b1,        "room everywhere: accepted");
+    chk(sb_alloc  === 3'b101,      "the two stores reserve store buffer entries");
+    chk(lb_alloc  === 3'b010,      "the load reserves a load buffer entry");
+    em = mem_at(0);
+    chk(em.lsq_idx === sb(1'b0, 10), "sw: store buffer entry = sb_tail");
+    em = mem_at(1);
+    chk(em.lsq_idx === lb(1'b0, 3),  "lw: load buffer entry = lb_tail");
+    chk(em.color   === sb(1'b0, 10), "lw: color = the store of slot 0");
+    em = mem_at(2);
+    chk(em.lsq_idx === sb(1'b0, 11), "sd: next store buffer entry");
+
+    // L2: the store buffer index wraps from 11 to 0 and the wrap bit flips;
+    // the load buffer, with 16 entries, wraps from 15 to 0.
+    cur = "L2 wrap of the index";
+    env_all_free();
+    sb_tail    = sb(1'b0, 11);
+    lb_tail    = lb(1'b1, 15);
+    dec_uop[0] = i_sd(5'd6, 5'd5);
+    dec_uop[1] = i_ld(5'd7, 5'd5);
+    dec_uop[2] = i_sd(5'd8, 5'd5);
+    #1;
+    em = mem_at(0);
+    chk(em.lsq_idx === sb(1'b0, 11), "first store: entry 11");
+    em = mem_at(1);
+    chk(em.lsq_idx === lb(1'b1, 15), "load: load buffer entry 15");
+    chk(em.color   === sb(1'b0, 11), "load: color = entry 11");
+    em = mem_at(2);
+    chk(em.lsq_idx === sb(1'b1, 0),  "second store: wraps to entry 0, wrap bit flipped");
+    lb_tail    = lb(1'b1, 15);
+    dec_uop[0] = i_ld(5'd6, 5'd5);
+    dec_uop[1] = i_ld(5'd7, 5'd5);
+    dec_uop[2] = i_add(5'd8, 5'd1, 5'd2);
+    #1;
+    em = mem_at(1);
+    chk(em.lsq_idx === lb(1'b0, 0),  "second load: load buffer wraps to 0, wrap bit flipped");
+
+    // L3: a load with no store before it in the bundle: its color is the entry
+    // before sb_tail, across the wrap (entry 0 -> entry 11, wrap bit back).
+    cur = "L3 color across the wrap";
+    env_all_free();
+    sb_tail    = sb(1'b1, 0);
+    lb_tail    = lb(1'b0, 7);
+    dec_uop[0] = i_ld(5'd6, 5'd5);
+    dec_uop[1] = i_sd(5'd7, 5'd5);
+    dec_uop[2] = i_lw(5'd8, 5'd5);
+    #1;
+    em = mem_at(0);
+    chk(em.lsq_idx === lb(1'b0, 7),  "first load: lb_tail");
+    chk(em.color   === sb(1'b0, 11), "first load: color = entry before sb_tail");
+    em = mem_at(1);
+    chk(em.lsq_idx === sb(1'b1, 0),  "store: sb_tail");
+    em = mem_at(2);
+    chk(em.lsq_idx === lb(1'b0, 8),  "second load: next load buffer entry");
+    chk(em.color   === sb(1'b1, 0),  "second load: color = the store of slot 1");
+
+    // L4: store buffer short (1 entry for 2 stores): the bundle waits, nothing
+    // is reserved, and Rename is told not to allocate tags.
+    cur = "L4 store buffer short";
+    env_all_free();
+    sb_free    = SB_CNT_W'(1);
+    dec_uop[0] = i_sw(5'd6, 5'd5);
+    dec_uop[1] = i_add(5'd7, 5'd1, 5'd2);
+    dec_uop[2] = i_sd(5'd8, 5'd5);
+    #1;
+    chk(dec_ready    === 1'b0,   "not enough store buffer entries: the bundle waits");
+    chk(ren_rs_ready === 1'b0,   "Rename must not allocate tags (they would leak)");
+    chk(rob_alloc    === 3'b000, "nothing allocated in the ROB");
+    chk(sb_alloc     === 3'b000, "nothing reserved in the store buffer");
+    chk(mem_wr       === 3'b000, "nothing written in the RS");
+    sb_free = SB_CNT_W'(2);
+    #1;
+    chk(dec_ready === 1'b1 && sb_alloc === 3'b101, "exact fit: two entries for two stores");
+
+    // L5: load buffer full: a bundle with a load waits; one without loads
+    // still enters.
+    cur = "L5 load buffer full";
+    env_all_free();
+    lb_free    = '0;
+    dec_uop[0] = i_add(5'd6, 5'd1, 5'd2);
+    dec_uop[1] = i_lw(5'd7, 5'd5);
+    dec_uop[2] = i_sw(5'd8, 5'd5);
+    #1;
+    chk(dec_ready    === 1'b0,   "no load buffer entry: the bundle waits");
+    chk(ren_rs_ready === 1'b0,   "Rename must not allocate tags");
+    chk(lb_alloc === 3'b000 && sb_alloc === 3'b000, "nothing reserved in either buffer");
+    dec_uop[1] = i_add(5'd7, 5'd1, 5'd2);
+    #1;
+    chk(dec_ready === 1'b1,      "no load in the bundle: the full load buffer does not matter");
+    chk(sb_alloc === 3'b100 && lb_alloc === 3'b000, "only the store reserves");
+
+    // L6: invalid slots never reserve, whatever op says.
+    cur = "L6 invalid slots";
+    env_all_free();
+    dec_uop[0] = i_invalid(AGU_SD);
+    dec_uop[1] = i_invalid(AGU_LD);
+    dec_uop[2] = i_sd(5'd8, 5'd5);
+    sb_tail    = sb(1'b0, 4);
+    #1;
+    chk(sb_alloc === 3'b100 && lb_alloc === 3'b000, "only the valid store reserves");
+    em = mem_at(2);
+    chk(em.lsq_idx === sb(1'b0, 4), "the valid store takes sb_tail: invalid slots do not count");
+
+    // L7: flush: nothing is reserved.
+    cur = "L7 flush";
+    env_all_free();
+    flush      = 1'b1;
+    dec_uop[0] = i_sw(5'd6, 5'd5);
+    dec_uop[1] = i_lw(5'd7, 5'd5);
+    dec_uop[2] = i_sd(5'd8, 5'd5);
+    #1;
+    chk(sb_alloc === 3'b000 && lb_alloc === 3'b000, "no reservation in the flush cycle");
 
     $display("PASS dispatch_tb (%0d checks)", checks);
     $finish;

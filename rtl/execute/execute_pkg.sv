@@ -52,6 +52,7 @@ package execute_pkg;
   typedef logic [AGE_W-1:0] age_t;
   typedef logic [LSQ_IDX_W-1:0] lsq_idx_t;  // store buffer or load buffer entry
   typedef logic [SB_PTR_W-1:0]  sb_ptr_t;   // store buffer entry: a load's color
+  typedef logic [LB_PTR_W-1:0]  lb_ptr_t;   // load buffer entry
 
   localparam int unsigned TAG_W = $clog2(PRF_ENTRIES);
   typedef logic [TAG_W-1:0] tag_t;   // physical register (rename tag)
@@ -203,6 +204,39 @@ package execute_pkg;
   // make this comparison wrap the wrong way and the selective flush would
   // kill the wrong instructions.
   // ---------------------------------------------------------------------
+  // Store buffer and load buffer pointers: index counted modulo *_ENTRIES
+  // (12 is not a power of 2), and a wrap bit that flips on every wrap.
+  // n must be smaller than the number of entries.
+  function automatic sb_ptr_t sb_ptr_add(input sb_ptr_t p, input int unsigned n);
+    int unsigned i;
+    logic        w;
+    i = int'(p[SB_PTR_W-2:0]) + n;
+    w = p[SB_PTR_W-1];
+    if (i >= SB_ENTRIES) begin
+      i = i - SB_ENTRIES;
+      w = ~w;
+    end
+    return {w, (SB_PTR_W-1)'(i)};
+  endfunction
+
+  // The entry before p (the last store allocated before a load: its color).
+  function automatic sb_ptr_t sb_ptr_prev(input sb_ptr_t p);
+    if (p[SB_PTR_W-2:0] == '0) return {~p[SB_PTR_W-1], (SB_PTR_W-1)'(SB_ENTRIES - 1)};
+    return {p[SB_PTR_W-1], p[SB_PTR_W-2:0] - 1'b1};
+  endfunction
+
+  function automatic lb_ptr_t lb_ptr_add(input lb_ptr_t p, input int unsigned n);
+    int unsigned i;
+    logic        w;
+    i = int'(p[LB_PTR_W-2:0]) + n;
+    w = p[LB_PTR_W-1];
+    if (i >= LB_ENTRIES) begin
+      i = i - LB_ENTRIES;
+      w = ~w;
+    end
+    return {w, (LB_PTR_W-1)'(i)};
+  endfunction
+
   function automatic logic age_is_younger(input age_t a, input age_t b);
     logic signed [AGE_W-1:0] diff;
     diff = a - b;

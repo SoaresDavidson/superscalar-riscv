@@ -87,6 +87,8 @@ module core
   localparam int READ_N = 7;   // PRF read ports: 0-1 ALU, 2-3 Branch Unit, 4 load AGU, 5-6 store AGU
   localparam int ROB_N  = 4;   // ROB response ports: ALU, Branch Unit, AGU, load
   localparam int FQ_W   = W + W * XLEN + W * 32;   // {slot_valid, pc, inst}
+  localparam int SB_CNT_W = $clog2(SB_ENTRIES + 1);
+  localparam int LB_CNT_W = $clog2(LB_ENTRIES + 1);
 
   // ---------------------------------------------------------------------------
   // Wires
@@ -232,7 +234,12 @@ module core
       .ren_dst_tag, .ren_old_tag,
       .rob_free, .rob_age, .rob_alloc, .rob_entry, .rob_uop,
       .int_free, .int_wr, .int_entry,
-      .mem_free, .mem_wr, .mem_entry
+      .mem_free, .mem_wr, .mem_entry,
+      // The store buffer and the load buffer do not exist in the core yet
+      // (the Memory is a port): they always have room and every reservation
+      // gets entry 0. Nothing reads the indices until the Memory is wired.
+      .sb_free  (SB_CNT_W'(SB_ENTRIES)), .sb_tail ('0), .sb_alloc (),
+      .lb_free  (LB_CNT_W'(LB_ENTRIES)), .lb_tail ('0), .lb_alloc ()
   );
 
   PRFRename #(.XLEN(XLEN), .ENTRIES(PRF_ENTRIES), .W(W), .WB_N(WB_N), .READ_N(READ_N)) u_rename (

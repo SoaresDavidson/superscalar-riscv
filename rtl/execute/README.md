@@ -38,7 +38,8 @@ Unidades funcionais do estágio [Execute](https://github.com/SoaresDavidson/supe
 | `SB_ENTRIES`, `LB_ENTRIES` | 12 e 16 — store buffer e load buffer (decisão 17, valores do P6) |
 | `SB_PTR_W`, `LB_PTR_W` | `$clog2(*_ENTRIES) + 1` — índice da entrada mais o bit de volta |
 | `lsq_idx_t` | entrada no store buffer ou no load buffer (`LSQ_IDX_W`, o maior dos dois) |
-| `sb_ptr_t` | entrada no store buffer: a cor de um load |
+| `sb_ptr_t`, `lb_ptr_t` | entrada no store buffer (também a cor de um load) e no load buffer |
+| `sb_ptr_add(p, n)`, `lb_ptr_add(p, n)`, `sb_ptr_prev(p)` | avançam ou recuam um ponteiro, contando o índice módulo `*_ENTRIES` e trocando o bit de volta (12 não é potência de 2) |
 
 Os quatro últimos só andam em portas laterais (`rs_mem` → `agu` → Memory); `uop_t`, `fu_req_t` e `fu_resp_t` não os carregam. São acréscimos ao pacote, sem mudar nenhum tipo existente.
 | `uop_t` | Micro-operação Decode → Rename/Dispatch, em registradores arquiteturais (sem tag) |

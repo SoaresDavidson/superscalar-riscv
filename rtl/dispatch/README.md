@@ -20,7 +20,8 @@ Tipos das entradas: [`dispatch_pkg.sv`](dispatch_pkg.sv). Tipos compartilhados
 | `RS_MEM_ENTRIES` | 4 | entradas da RS MEM |
 
 Larguras derivadas: `*_CNT_W = $clog2(N + 1)` (contagem de livres, de 0 a
-`N`). `XLEN` e `TAG_W` vêm
+`N`). `SB_CNT_W` e `LB_CNT_W` seguem `SB_ENTRIES` e `LB_ENTRIES` do
+`execute_pkg`. `XLEN` e `TAG_W` vêm
 do `execute_pkg`, não são parâmetros.
 
 ## Portas
@@ -96,6 +97,20 @@ A RS recebe uma entrada montada por slot e grava as dos slots com o bit de
 escrita em 1, escolhendo ela mesma a posição livre. A entrada é montada para
 todos os slots; só o bit de escrita diz se ela vale.
 
+### Store buffer e load buffer (decisão 17)
+
+| Porta | Dir. | Significado |
+|---|---|---|
+| `sb_free`, `lb_free` | entrada | entradas livres em cada buffer |
+| `sb_tail`, `lb_tail` | entrada | próxima entrada a reservar, com o bit de volta (`sb_ptr_t`, `lb_ptr_t`) |
+| `sb_alloc[W]`, `lb_alloc[W]` | saída | o slot `k` reserva uma entrada naquele buffer |
+
+O índice de cada slot é a cauda mais o número de stores (ou loads) nos slots
+anteriores, módulo `SB_ENTRIES` com o bit de volta (`sb_ptr_add`,
+`lb_ptr_add` no `execute_pkg`). Vai em `lsq_idx` da entrada da RS MEM. A cor
+de um load é a entrada anterior à posição dele no store buffer
+(`sb_ptr_prev`): o último store alocado antes dele, mesmo no próprio bundle.
+
 ## Comportamento
 
 Roteamento por `fu_of(op)` (Execute: uma FU de cada tipo):
@@ -112,13 +127,17 @@ Aceite:
 ```
 rob_ok   = rob_free >= n_rob
 rs_ok    = int_free >= n_int && mem_free >= n_mem
-space_ok = rob_ok && rs_ok
+lsq_ok   = sb_free >= n_st && lb_free >= n_ld
+space_ok = rob_ok && rs_ok && lsq_ok
 accept   = dec_valid && dec_ready && !flush
+ren_rs_ready = rs_ok && lsq_ok
 ```
 
-`n_rob`, `n_int` e `n_mem` contam os slots válidos, os que vão para a RS INT e
-os que vão para a RS MEM. `rob_alloc`, `int_wr` e `mem_wr` só ligam com
-`accept = 1`.
+`n_rob`, `n_int`, `n_mem`, `n_st` e `n_ld` contam os slots válidos, os que
+vão para a RS INT, para a RS MEM, os stores e os loads. `rob_alloc`, `int_wr`,
+`mem_wr`, `sb_alloc` e `lb_alloc` só ligam com `accept = 1`. O `lsq_ok` entra
+no `ren_rs_ready`: sem ele, um buffer cheio recusaria o bundle depois de o
+Rename já ter alocado as tags, e elas vazariam.
 
 Garantias para os vizinhos:
 
@@ -138,7 +157,7 @@ interface:
 
 ## Teste
 
-`tb/unit/dispatch_tb.sv`, com `W = 3` (118 verificações):
+`tb/unit/dispatch_tb.sv`, com `W = 3` (149 verificações):
 
 - **T1 a T5, roteamento:** cada tipo de instrução em posições diferentes,
   `FU_NONE`, três instruções na mesma RS e slots inválidos com `op` de lixo.
@@ -147,3 +166,6 @@ interface:
 - **C1 a C4, conteúdo:** consultas ao Rename (`x0` e lixo em `rs2`), campos
   das entradas da RS INT e da RS MEM (com o `age` de cada slot), da entrada do
   ROB e do `rob_uop`.
+- **L1 a L7, reserva nos buffers:** máscaras, índice e cor por slot, volta do
+  índice (12 no store buffer, 16 no load buffer), cor através da volta,
+  buffer cheio sem vazar tag, slots inválidos que não contam e flush.
