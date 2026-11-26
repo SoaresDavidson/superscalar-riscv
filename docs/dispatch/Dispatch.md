@@ -17,6 +17,7 @@ na estação de reserva (RS). Há duas RS: a INT (ALU e desvio) e a MEM
 | Rename (`PRFRename`) | `dispatch_ready`, `dst_tag`, `old_tag`, tags e prontos das fontes | `rs1`, `rs2`, `rd`, `writes_rd`, as três máscaras, `rob_ready`, `rs_ready` |
 | ROB (`retire_team`) | entradas livres, `age` de cada slot (`rob_age`) | uma entrada por instrução, e o `uop_t` do bundle (`rob_uop`) |
 | RS INT e RS MEM | entradas livres | instrução a emitir |
+| Memory (store buffer e load buffer) | `sb_free`, `sb_tail`, `lb_free`, `lb_tail` | `sb_alloc[W]`, `lb_alloc[W]` |
 
 As máscaras de dependência do Decode já estão no formato do `PRFRename`
 (one-hot por slot) e são repassadas sem conversão.
@@ -39,23 +40,44 @@ As máscaras de dependência do Decode já estão no formato do `PRFRename`
 
 ## Condição de aceite
 
-Por slot `k`, o dispatch monta quatro máscaras de `W` bits: `valid[k]` (pede
-ROB), `has_dest[k]` (pede tag), `to_int[k]` e `to_mem[k]` (pedem RS). As
-contagens `n_rob`, `n_int` e `n_mem` são o número de bits em 1 de cada
-máscara.
+Por slot `k`, o dispatch monta seis máscaras de `W` bits: `valid[k]` (pede
+ROB), `has_dest[k]` (pede tag), `to_int[k]` e `to_mem[k]` (pedem RS),
+`is_st[k]` e `is_ld[k]` (pedem entrada no store buffer e no load buffer;
+`op` `AGU_S*` e `AGU_L*`, subconjuntos de `to_mem`). As contagens `n_rob`,
+`n_int`, `n_mem`, `n_st` e `n_ld` são o número de bits em 1 de cada máscara.
 
 ```
 rob_ok       = rob_free >= n_rob
 rs_ok        = int_free >= n_int && mem_free >= n_mem
-decode_ready = rob_ok && rs_ok && rename.dispatch_ready
+lsq_ok       = sb_free >= n_st && lb_free >= n_ld
+decode_ready = rob_ok && rs_ok && lsq_ok && rename.dispatch_ready
 accept       = decode.out_valid && decode_ready && !flush
 ```
 
 - `decode_ready` vai para o `out_ready` do Decode; o bundle entra quando
   `accept = 1`.
 - A condição das tags é calculada pelo Rename (`dispatch_ready`).
-- `rob_ok` vai para o `rob_ready` do Rename e `rs_ok` para o `rs_ready`: ele
-  só aloca tags quando os dois estão em 1, ou seja, quando o bundle entra.
+- `rob_ok` vai para o `rob_ready` do Rename e `rs_ok && lsq_ok` para o
+  `rs_ready`: ele só aloca tags quando os dois estão em 1, ou seja, quando o
+  bundle entra. Sem o `lsq_ok` ali, um buffer cheio recusaria o bundle depois
+  de o Rename já ter alocado as tags, e elas vazariam.
+- `sb_alloc = {W{accept}} & is_st` e `lb_alloc = {W{accept}} & is_ld`, como
+  o `rob_alloc`.
+
+### Índice no store buffer e no load buffer
+
+Os slots alocam em ordem de programa. Para o slot `k`, com `st_antes[k]` e
+`ld_antes[k]` = número de stores e de loads nos slots `< k`:
+
+```
+sb_idx[k] = sb_tail + st_antes[k]        (módulo SB_ENTRIES, com bit de volta)
+lb_idx[k] = lb_tail + ld_antes[k]        (módulo LB_ENTRIES, com bit de volta)
+color[k]  = sb_tail + st_antes[k] - 1    (só loads: último store alocado antes)
+```
+
+O índice vai para a entrada da RS MEM (`lsq_idx`: `sb_idx` num store,
+`lb_idx` num load) junto com a cor (`color`). Detalhes e larguras na wiki,
+[[Memory]], seção "Alocação no dispatch: interface".
 
 ## Entrada na RS
 
@@ -83,6 +105,7 @@ Na emissão, os campos de execução e os valores lidos do banco pelas tags form
 | Fonte 1 (base do endereço) | `src1_ready`, `src1_tag` |
 | Fonte 2 (dado do store; load entra pronto) | `src2_ready`, `src2_tag` |
 | Execução | `op` (`AGU_*`: tamanho, sinal e direção), `imm`, `dst_tag`, `wr_en`, `age` |
+| Memory | `lsq_idx` (entrada no store buffer ou no load buffer), `color` (só load) |
 
 Em relação à RS INT, saem `use_imm` (o endereço
 é sempre `rs1 + imm`), `pc` (guardado no ROB), `pred_taken` e `pred_target`.
@@ -178,10 +201,14 @@ até os pinos na borda; dentro do `core`, esses sinais viram fios internos.
 
 **Memória**
 
-7. **Emissão do store.** O store sai da RS MEM só com os dois operandos
-   prontos, ou calcula o endereço assim que a base (`src1`) fica pronta?
-   Proposta inicial: esperar os dois. Depende da parte de memória (Shen &
-   Lipasti, 5.3).
+7. ~~**Emissão do store.**~~ **Resolvido (decisão 17, etapa 1):** o store
+   sai da RS MEM só com os dois operandos prontos, e a AGU repassa o dado
+   (`agu_store_data`). Na etapa 2, se as violações pesarem, o dispatch separa
+   o store em STA e STD.
+10. **Alocação no store buffer e no load buffer** (decisão 17). Especificada
+    acima e na wiki ([[Memory]], "Alocação no dispatch: interface"); falta o
+    RTL. Muda as portas do dispatch (`sb_*`, `lb_*`) e o `rs_mem_entry_t`
+    (`lsq_idx`, `color`).
 
 **Resolvidos na reunião de alinhamento** (AGENTS.md, 06/11): sem
 multiplicador (a extensão M é ilegal); instruções de sistema vão para o
