@@ -20,7 +20,7 @@ Retirement ele chama de *complete*. Por isso o "completion buffer" do livro
 |---|---|---|
 | ALU | `alu_resp_valid`, `alu_resp` | `alu_resp_ready` |
 | Branch Unit | `br_resp_valid`, `br_resp` | `br_resp_ready` |
-| AGU | `agu_resp_valid`, `agu_resp`; `agu_is_load` (origem em aberto, item 3) | `agu_resp_ready` |
+| AGU | `agu_resp_valid`, `agu_resp`; `agu_is_load` (saída `resp_is_load` da `agu`, item 1) | `agu_resp_ready` |
 | Memory (dado do load) | `lsu_resp_valid`, `lsu_resp` | `lsu_resp_ready` |
 | Rename (`PRFRename`, com `WB_N = 3`) | — | `wb_valid`, `wb_tag`, `wb_data` |
 | RS INT e RS MEM (com `WB_N = 3`) | — | `wb_valid`, `wb_tag` |
@@ -244,13 +244,15 @@ esses sinais viram fios internos curtos.
 
 **Interface com os vizinhos**
 
-1. **Origem do `agu_is_load`.** A resposta da AGU não diz se é de um load, e
-   o `wr_en` não serve (caso difícil 2). O `backend_tb` consulta uma tabela
-   indexada pelo `age`, o que só existe no testbench. Opções: (A) a AGU ganha
-   uma saída `resp_is_load`, que ela já calcula por dentro (`is_store`); (B)
-   o Memory, que recebe a resposta da AGU, fornece o sinal; (C) um campo novo
-   no `fu_resp_t`, que muda o `execute_pkg` e todos os blocos. Proposta: (A)
-   (aval do Execute).
+1. **Origem do `agu_is_load`. Decidido: (A).** A resposta da AGU não diz se
+   é de um load, e o `wr_en` não serve (caso difícil 2). Opções: (A) a AGU
+   ganha uma saída `resp_is_load`, que ela já calcula por dentro; (B) o
+   Memory, que recebe a resposta da AGU, fornece o sinal; (C) um campo novo
+   no `fu_resp_t`, que muda o `execute_pkg` e todos os blocos. Adotada a (A):
+   a `agu` tem a saída `resp_is_load`, e o `core` (`rtl/core/core.sv`) a liga
+   em `agu_is_load`. O `backend_tb` ainda usa a tabela indexada pelo `age`,
+   que o modelo do LSU precisa de qualquer forma para saber o tamanho do
+   acesso.
 2. **Retorno do load.** O Memory não tem especificação. Proposta: a mesma
    `fu_resp_t`, como no modelo do `backend_tb`, com três requisitos para o
    Memory: os metadados (`dst_tag`, `wr_en`, `age`) andam em paralelo à

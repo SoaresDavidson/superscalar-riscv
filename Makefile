@@ -29,11 +29,23 @@ PARAMS_decode := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
 PARAMS_PipeFifo := DEPTH=1 DEPTH=2 DEPTH=3 DEPTH=4 DEPTH=8
 PARAMS_retire_team := DEEP2=0 DEEP2=1
 PARAMS_backend := DEEP2=0 DEEP2=1
+PARAMS_core := DEEP2=0 DEEP2=1
 PARAMS_fetch := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
 
 T ?= $(TESTS)
 
-.PHONY: test test-unit test-integration lint clean $(TESTS)
+# Physical design runs inside the LibreLane image (Dockerfile.pnr); the host
+# needs only docker and a Ciel PDK folder. PNR_CONFIG picks the block's
+# config, relative to the repository root. Without it, the target runs the
+# LibreLane `spm` example in build/spm: a check that the flow and the PDK work.
+# The core top (rtl/core) has no config yet: Branch Unit and Memory are still
+# ports, not RTL.
+PNR_IMAGE  := superscalar-riscv-pnr
+PNR_CONFIG ?=
+PDK_ROOT   ?= $(HOME)/.ciel
+PNR_ARGS   := $(if $(PNR_CONFIG),/work/$(PNR_CONFIG),--run-example spm)
+
+.PHONY: test test-unit test-integration lint pnr clean $(TESTS)
 
 test: $(T)
 test-unit: $(UNIT_TESTS)
@@ -53,6 +65,15 @@ $(TESTS): %: %_tb.sv $(RTL) | $(BUILD)
 # defect in any block fails this target.
 lint:
 	verilator --lint-only -Wall -Wno-MULTITOP -Irtl $(RTL)
+
+# Runs as the host user so the outputs in runs/ are not owned by root.
+# --run-example refuses to overwrite an existing copy, hence the rm.
+pnr: | $(BUILD)
+	docker build -f Dockerfile.pnr -t $(PNR_IMAGE) .
+	$(if $(PNR_CONFIG),,rm -rf $(BUILD)/spm)
+	docker run --rm --user "$$(id -u):$$(id -g)" -e HOME=/tmp \
+	  -e PDK_ROOT=/pdk -v "$(PDK_ROOT)":/pdk -v "$(CURDIR)":/work \
+	  -w /work/$(BUILD) $(PNR_IMAGE) librelane $(PNR_ARGS)
 
 $(BUILD):
 	mkdir -p $@

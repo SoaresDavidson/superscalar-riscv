@@ -39,7 +39,8 @@ module PipeFifo_tb #(
         flush = fl;
         #1;
         if (in_ready !== (m_count < DEPTH)) fail("in_ready diferente de (ocupação < DEPTH)");
-        if (out_valid !== (m_count > 0)) fail("out_valid diferente de (ocupação > 0)");
+        // no ciclo do flush a saída já fica inválida, mesmo com a FIFO ocupada
+        if (out_valid !== (m_count > 0 && !fl)) fail("out_valid diferente de (ocupação > 0 && !flush)");
         if (m_count > 0 && out_data !== model[m_head]) fail("out_data fora de ordem ou corrompido");
         // flush tem precedência sobre o handshake nos dois lados
         acc_in = in_valid && in_ready && !fl;

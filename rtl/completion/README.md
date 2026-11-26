@@ -41,7 +41,7 @@ Uma fonte por FU, cada uma com o handshake do projeto. Todas as respostas são
 | `br_resp_ready` | saída | Branch Unit | sempre 1 |
 | `agu_resp_valid`, `agu_resp` | entrada | `resp_valid`, `resp` da `agu` | resposta da AGU |
 | `agu_resp_ready` | saída | `resp_ready` da `agu` | sempre 1 |
-| `agu_is_load` | entrada | **origem em aberto** (Pendências) | a resposta da AGU é de um load; vale com `agu_resp_valid` |
+| `agu_is_load` | entrada | `resp_is_load` da `agu` | a resposta da AGU é de um load; vale com `agu_resp_valid` |
 | `lsu_resp_valid`, `lsu_resp` | entrada | Memory (a fazer) | dado do load, já estendido |
 | `lsu_resp_ready` | saída | Memory | sempre 1 |
 
@@ -108,9 +108,6 @@ fazem isso com `flush_age`.
 Ver `docs/completion/Completion.md`, "Pontos em aberto". As que mudam esta
 interface ou a ligação:
 
-- **`agu_is_load`** (item 3) não tem origem no `core`. A proposta é a `agu`
-  exportar o sinal, que ela já calcula por dentro. O `backend_tb` o obtém de
-  uma tabela indexada pelo `age`, que só existe no testbench.
 - **Porta do Memory** (item 6): `lsu_*` supõe a mesma `fu_resp_t`, como no
   modelo do `backend_tb`. O Memory não tem especificação.
 - **Regra de write-back** (item 8): a do `rtl/issue/README.md` é

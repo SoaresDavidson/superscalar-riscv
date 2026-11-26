@@ -11,10 +11,11 @@ module agu_tb;
   fu_req_t  req;
   logic     resp_valid, resp_ready;
   fu_resp_t resp;
+  logic     resp_is_load;
 
   agu dut (.clk, .reset, .flush, .flush_age,
            .req_valid, .req_ready, .req,
-           .resp_valid, .resp_ready, .resp);
+           .resp_valid, .resp_ready, .resp, .resp_is_load);
 
   always #5 clk = ~clk;
 
@@ -26,13 +27,14 @@ module agu_tb;
   // expected FIFO
   localparam int D = 4096;
   age_t e_age[D]; xlen_t e_addr[D]; tag_t e_rd[D]; logic e_wr[D];
-  logic e_exc[D]; exc_cause_t e_cause[D];
+  logic e_exc[D]; exc_cause_t e_cause[D]; logic e_st[D];
   integer head=0, tail=0;
   function automatic void push(input age_t a, input xlen_t ad, input tag_t rd,
                                input logic wr, input logic exc, input exc_cause_t c);
     e_age[tail]=a; e_addr[tail]=ad; e_rd[tail]=rd; e_wr[tail]=wr;
-    e_exc[tail]=exc; e_cause[tail]=c; tail++;
+    e_exc[tail]=exc; e_cause[tail]=c; e_st[tail]=!wr; tail++;
   endfunction
+  function automatic logic is_store_age(input integer i); return e_st[i]; endfunction
   function automatic void kill_younger(input age_t fa);
     while (tail>head && age_is_younger(e_age[tail-1], fa)) tail--;
   endfunction
@@ -45,6 +47,7 @@ module agu_tb;
       check(resp.dst_tag==e_rd[head],         $sformatf("age %0d rd", resp.age));
       check(resp.wr_en==e_wr[head],      $sformatf("age %0d wr_en", resp.age));
       check(resp.exception==e_exc[head], $sformatf("age %0d exc got %b exp %b", resp.age, resp.exception, e_exc[head]));
+      check(resp_is_load==!is_store_age(head), $sformatf("age %0d resp_is_load got %b", resp.age, resp_is_load));
       if (e_exc[head]) check(resp.cause==e_cause[head], $sformatf("age %0d cause", resp.age));
       head++;
     end

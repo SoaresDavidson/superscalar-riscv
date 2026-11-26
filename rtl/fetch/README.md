@@ -118,8 +118,9 @@ Previsto na especificação, em "Versões" e "Pontos em aberto":
 
 - Predição de desvios (v3) e RAS (v4). Os campos `pred_taken` e `pred_target`
   que o `fu_req_t` espera ainda não têm caminho até a Branch Unit (ponto 1).
-- Fetch Buffer: não é do Fetch. É o `PipeFifo` do Davi, já na `main` (#16),
-  mas ainda sem quem o instancie entre o Fetch e o Decode (ponto 2).
+- Fetch Buffer: não é do Fetch. É o `PipeFifo`, instanciado entre o Fetch e
+  o Decode pelo `core` (`rtl/core/README.md`), que o esvazia também no
+  redirect do Decode (ponto 2).
 - Bundles parciais (`out_slot_valid` com zeros à direita), necessários quando
   houver desvio previsto como tomado no meio do bundle (v3).
 

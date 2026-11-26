@@ -46,10 +46,10 @@ module PipeFifo #(
 |---|---|
 | Handshake | `valid`/`ready`: a transferência ocorre quando os dois estão altos |
 | `in_ready` | `1` se há vaga. Depende só da ocupação, nunca de `out_ready` |
-| `out_valid` | `1` se há entrada. A mais antiga já está em `out_data` |
+| `out_valid` | `1` se há entrada e não há `flush` no ciclo. A mais antiga já está em `out_data` |
 | `out_data` | estável enquanto `out_valid && !out_ready` |
 | Cheia | uma saída no ciclo não abre vaga para entrada no mesmo ciclo |
-| `flush` | esvazia a FIFO; tem precedência sobre o handshake dos dois lados (entrada no mesmo ciclo é descartada, saída no mesmo ciclo não ocorre) |
+| `flush` | esvazia a FIFO; tem precedência sobre o handshake dos dois lados (entrada no mesmo ciclo é descartada; `out_valid` cai no próprio ciclo do `flush`, então nenhuma saída ocorre nele) |
 | `reset` | esvazia a FIFO |
 | `DEPTH` | qualquer valor `>= 1`; não precisa ser potência de 2 |
 

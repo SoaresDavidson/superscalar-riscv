@@ -6,7 +6,7 @@
 //     source that finishes an instruction: ALU, Branch Unit, AGU, load.
 // Wiring table: rtl/issue/README.md. Spec: docs/completion/Completion.md.
 
-// STATUS: v1. Pending (Completion.md, open item 3): who drives agu_is_load.
+// STATUS: v1. agu_is_load comes from the agu resp_is_load output (Completion.md, item 1).
 // Unused on purpose: clk and reset (Completion is combinational; every block
 // takes them).
 module completion
