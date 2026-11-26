@@ -107,28 +107,29 @@ module store_buffer
   endfunction
 
   // ---------------------------------------------------------------------------
-  // State
+  // State. The ent_ prefix marks a per-entry array: ent_x[i] is field x of
+  // store buffer entry i.
   // ---------------------------------------------------------------------------
   sb_ptr_t    head, cmt, tail;
-  logic [1:0] st     [N];
-  xlen_t      e_addr [N];
-  xlen_t      e_data [N];
-  exec_op_t   e_op   [N];
+  logic [1:0] ent_state [N];
+  xlen_t      ent_addr  [N];
+  xlen_t      ent_data  [N];
+  exec_op_t   ent_op    [N];
 
   // Per-entry views for the search and the write, by genvar (Icarus: no
   // variable index followed by a second select).
-  logic [7:0]      e_mask [N];
-  xlen_t           e_lane [N];
-  logic [XLEN-4:0] e_dw   [N];   // doubleword address
-  logic            e_vis  [N];   // finished or completed: visible to loads
-  int unsigned     e_dist [N];   // entries after the head
+  logic [7:0]      ent_mask [N];
+  xlen_t           ent_lane [N];
+  logic [XLEN-4:0] ent_dw   [N];   // doubleword address
+  logic            ent_vis  [N];   // finished or completed: visible to loads
+  int unsigned     ent_dist [N];   // entries after the head
 
   for (genvar i = 0; i < N; i++) begin : g_view
-    assign e_mask[i] = byte_mask(e_addr[i], e_op[i]);
-    assign e_lane[i] = lane(e_addr[i], e_data[i]);
-    assign e_dw[i]   = e_addr[i] >> 3;
-    assign e_vis[i]  = (st[i] == S_FIN) || (st[i] == S_COMP);
-    assign e_dist[i] = (i + N - idx_of(head)) % N;
+    assign ent_mask[i] = byte_mask(ent_addr[i], ent_op[i]);
+    assign ent_lane[i] = lane(ent_addr[i], ent_data[i]);
+    assign ent_dw[i]   = ent_addr[i] >> 3;
+    assign ent_vis[i]  = (ent_state[i] == S_FIN) || (ent_state[i] == S_COMP);
+    assign ent_dist[i] = (i + N - idx_of(head)) % N;
   end
 
   int unsigned occ;   // entries in use
@@ -144,9 +145,9 @@ module store_buffer
   int unsigned hd;
   assign hd        = idx_of(head);
   assign wr_valid  = (cmt != head);
-  assign wr_addr   = {e_dw[hd], 3'b000};
-  assign wr_data   = e_lane[hd];
-  assign wr_strb   = e_mask[hd];
+  assign wr_addr   = {ent_dw[hd], 3'b000};
+  assign wr_data   = ent_lane[hd];
+  assign wr_strb   = ent_mask[hd];
   assign ret_valid = wr_valid && wr_ready;
   assign ret_idx   = head;
 
@@ -171,17 +172,17 @@ module store_buffer
     best   = 0;
     best_d = 0;
     for (int i = 0; i < N; i++)
-      if (color_ok && e_vis[i] && e_dist[i] <= color_d && e_dw[i] == ld_dw &&
-          (e_mask[i] & ld_mask) != '0 && (!found || e_dist[i] > best_d)) begin
+      if (color_ok && ent_vis[i] && ent_dist[i] <= color_d && ent_dw[i] == ld_dw &&
+          (ent_mask[i] & ld_mask) != '0 && (!found || ent_dist[i] > best_d)) begin
         found  = 1'b1;
         best   = i;
-        best_d = e_dist[i];
+        best_d = ent_dist[i];
       end
   end
 
   assign fw_match = found;
-  assign fw_full  = found && ((ld_mask & ~e_mask[best]) == '0);
-  assign fw_data  = e_lane[best];
+  assign fw_full  = found && ((ld_mask & ~ent_mask[best]) == '0);
+  assign fw_data  = ent_lane[best];
   assign fw_idx   = sb_ptr_add(head, best_d);
 
   // ---------------------------------------------------------------------------
@@ -216,37 +217,37 @@ module store_buffer
       head <= '0;
       cmt  <= '0;
       tail <= '0;
-      for (int i = 0; i < N; i++) st[i] <= S_FREE;
+      for (int i = 0; i < N; i++) ent_state[i] <= S_FREE;
     end else begin
       // Retire: the head entry was written.
       if (ret_valid) begin
-        st[hd] <= S_FREE;
+        ent_state[hd] <= S_FREE;
         head   <= sb_ptr_add(head, 1);
       end
 
       // Commit: finished -> completed.
       for (int i = 0; i < N; i++)
-        if (committing[i]) st[i] <= S_COMP;
+        if (committing[i]) ent_state[i] <= S_COMP;
       cmt <= cmt_next;
 
       if (flush) begin
         // Everything not completed goes back to free; the tail returns to
         // the completed boundary, after this cycle's commit.
         for (int i = 0; i < N; i++)
-          if (!committing[i] && (st[i] == S_RES || st[i] == S_FIN))
-            st[i] <= S_FREE;
+          if (!committing[i] && (ent_state[i] == S_RES || ent_state[i] == S_FIN))
+            ent_state[i] <= S_FREE;
         tail <= cmt_next;
       end else begin
         // Execution: the store AGU fills its reserved entry.
         if (st_valid && !st_exc) begin
-          st[idx_of(sb_ptr_t'(st_idx))]     <= S_FIN;
-          e_addr[idx_of(sb_ptr_t'(st_idx))] <= st_addr;
-          e_data[idx_of(sb_ptr_t'(st_idx))] <= st_data;
-          e_op[idx_of(sb_ptr_t'(st_idx))]   <= st_op;
+          ent_state[idx_of(sb_ptr_t'(st_idx))]     <= S_FIN;
+          ent_addr[idx_of(sb_ptr_t'(st_idx))] <= st_addr;
+          ent_data[idx_of(sb_ptr_t'(st_idx))] <= st_data;
+          ent_op[idx_of(sb_ptr_t'(st_idx))]   <= st_op;
         end
         // Reservation: entries from the tail.
         for (int j = 0; j < W; j++)
-          if (j < n_alloc) st[idx_of(sb_ptr_add(tail, j))] <= S_RES;
+          if (j < n_alloc) ent_state[idx_of(sb_ptr_add(tail, j))] <= S_RES;
         tail <= sb_ptr_add(tail, n_alloc);
       end
     end
