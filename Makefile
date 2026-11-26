@@ -7,9 +7,17 @@
 # sorted, because the order `find` returns is not stable. execute_pkg goes
 # before every other package, because the others import it (dispatch_pkg would
 # otherwise sort ahead of it).
+#
+# Both finds PRUNE every `runs` directory: `make pnr` writes the LibreLane run
+# next to the block's config (rtl/<block>/runs/, gigabytes of Yosys and
+# OpenROAD netlists plus the PDK blackboxes). Those are Verilog too, so without
+# the prune they enter this list and `iverilog` fails with "Module <block> has
+# already been declared" -- the synthesized netlist of a block colliding with
+# its own source. The directory is git-ignored, so only whoever ran `make pnr`
+# sees the breakage.
 BASE_PKG := rtl/execute/execute_pkg.sv
-PKGS   := $(BASE_PKG) $(filter-out $(BASE_PKG),$(shell find rtl -name '*_pkg.sv' | sort))
-MODS   := $(shell find rtl \( -name '*.sv' -o -name '*.v' \) ! -name '*_pkg.sv' | sort)
+PKGS   := $(BASE_PKG) $(filter-out $(BASE_PKG),$(shell find rtl -name runs -prune -o -name '*_pkg.sv' -print | sort))
+MODS   := $(shell find rtl -name runs -prune -o \( -name '*.sv' -o -name '*.v' \) ! -name '*_pkg.sv' -print | sort)
 RTL    := $(PKGS) $(MODS)
 SUITES := unit integration
 BUILD  := build
@@ -34,6 +42,12 @@ PARAMS_fetch := WIDTH=1 WIDTH=2 WIDTH=3 WIDTH=4
 
 T ?= $(TESTS)
 
+# Flags extras para o iverilog, passadas na linha de comando. O uso previsto
+# e ligar o traco de execucao de um testbench que o tenha:
+#   make test T=core IVFLAGS=-DTRACE
+# (tb/integration/core_tb.sv: log de retirada + uma linha por ciclo).
+IVFLAGS ?=
+
 # Physical design runs inside the LibreLane image (Dockerfile.pnr); the host
 # needs only docker and a Ciel PDK folder. PNR_CONFIG picks the block's
 # config, relative to the repository root. Without it, the target runs the
@@ -54,7 +68,7 @@ test-integration: $(INTEGRATION_TESTS)
 $(TESTS): %: %_tb.sv $(RTL) | $(BUILD)
 	@set -e; for p in $(or $(PARAMS_$@),none); do \
 	  flag=$$( [ $$p = none ] || echo "-P$@_tb.$$p" ); \
-	  iverilog -g2012 -Wall -I rtl -s $@_tb $$flag -o $(BUILD)/$@.vvp $(RTL) $<; \
+	  iverilog -g2012 -Wall $(IVFLAGS) -I rtl -s $@_tb $$flag -o $(BUILD)/$@.vvp $(RTL) $<; \
 	  out=$$(vvp -n $(BUILD)/$@.vvp 2>&1) || true; echo "$$out"; \
 	  echo "$$out" | grep -q PASS || { echo "$@ ($$p) FAIL"; exit 1; }; \
 	done

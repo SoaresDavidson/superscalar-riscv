@@ -17,6 +17,11 @@
 //     (rtl/execute/README.md), and the access size is not on the port yet:
 //     the Memory has no specification (docs/completion/Completion.md).
 //
+// Neither port has back-pressure towards the core: Completion is always ready,
+// so a FU response is presented for exactly one cycle and the block playing
+// the port must take it in that cycle. br_req is the exception -- it is a
+// request, and br_req_ready holds it in the RS.
+//
 // Flush: the ROB flush is total (it empties the pipeline at commit). Every
 // block flushes on it. The FUs only know the selective flush by age, so the
 // core blocks new requests during the flush instead (req_valid && !flush):
@@ -24,6 +29,20 @@
 // one in that cycle, and the FU output register empties at the edge. The
 // PipeFifo also flushes on the Decode redirect (JAL): the bundles behind the
 // JAL are on the wrong path.
+//
+// No wrong-path traffic reaches a block outside the core, so neither port
+// needs a flush rule of its own:
+//   - br_req_valid is already low during the flush, because rs_int drives
+//     every request with `found && !flush` (rs_int.sv, rs_mem.sv). The
+//     `&& !flush` on the ALU and AGU requests below is the same condition a
+//     second time, kept because it states the core's contract locally.
+//   - agu_resp_valid is gated here, and that gate is NOT redundant: it is a
+//     response, not a request. The AGU only kills a held response younger
+//     than flush_age, and flush_age is 0 here, so a response does reach the
+//     port in the flush cycle (age 0, or the half of the age space that
+//     compares as older). Completion drops it internally; the Memory must not
+//     enqueue it. Loads already in flight are dropped by the Memory itself,
+//     on the flush output.
 /* verilator lint_off PINCONNECTEMPTY */
 module core
   import execute_pkg::*;
@@ -145,6 +164,7 @@ module core
   // FUs -> completion
   logic                        alu_resp_valid, alu_resp_ready;
   fu_resp_t                    alu_resp;
+  logic                        agu_fu_valid;    // before the flush gate
   logic                        agu_resp_ready;
 
   // completion -> ROB
@@ -292,11 +312,16 @@ module core
       .req_valid    (agu_rs_valid && !flush),
       .req_ready    (agu_req_ready),
       .req          (agu_req),
-      .resp_valid   (agu_resp_valid),
+      .resp_valid   (agu_fu_valid),
       .resp_ready   (agu_resp_ready),
       .resp         (agu_resp),
       .resp_is_load (agu_is_load)
   );
+
+  // Flush gate on the AGU response, the only wrong-path traffic that would
+  // otherwise leave the core (see the header). The requests need no gate: the
+  // RS already suppresses them during the flush.
+  assign agu_resp_valid = agu_fu_valid && !flush;
 
   // ---------------------------------------------------------------------------
   // Completion and ROB
@@ -305,7 +330,8 @@ module core
       .clk, .reset, .flush,
       .alu_resp_valid, .alu_resp_ready, .alu_resp,
       .br_resp_valid,  .br_resp_ready,  .br_resp,
-      .agu_resp_valid, .agu_resp_ready, .agu_resp, .agu_is_load,
+      .agu_resp_valid (agu_fu_valid),
+      .agu_resp_ready, .agu_resp, .agu_is_load,
       .lsu_resp_valid, .lsu_resp_ready, .lsu_resp,
       .wb_valid, .wb_tag, .wb_data,
       .rob_resp_valid, .rob_resp

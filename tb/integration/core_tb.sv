@@ -194,13 +194,14 @@ module core_tb #(
   logic [63:0] x [32];
   int          exp_rd  [NEXP_MAX];
   logic [63:0] exp_val [NEXP_MAX];
+  logic [63:0] exp_pc  [NEXP_MAX];   // só para o traço: PC de cada commit
   int          n_exp, n_st, n_ld;
 
   function automatic logic [63:0] sext12(logic [31:0] i);
     return {{52{i[31]}}, i[31:20]};
   endfunction
 
-  task automatic step(input logic [31:0] i);
+  task automatic step(input logic [31:0] i, input logic [63:0] ipc);
     logic [63:0] v, a, b2, imm;
     int rd, rs1, rs2;
     logic [6:0] opc;
@@ -241,6 +242,7 @@ module core_tb #(
       x[rd] = v;
       exp_rd[n_exp]  = rd;
       exp_val[n_exp] = v;
+      exp_pc[n_exp]  = ipc;
       n_exp++;
     end
   endtask
@@ -248,8 +250,8 @@ module core_tb #(
   task automatic reference();
     for (int r = 0; r < 32; r++) x[r] = '0;
     n_exp = 0; n_st = 0; n_ld = 0;
-    for (int p = 0; p < EXC; p++) step(main_prog[p]);
-    for (int p = 0; p < NHAND; p++) step(hand_prog[p]);
+    for (int p = 0; p < EXC; p++)   step(main_prog[p], RESET_PC + 64'(4 * p));
+    for (int p = 0; p < NHAND; p++) step(hand_prog[p], MTVEC + 64'(4 * p));
   endtask
 
   // ---------------------------------------------------------------------------
@@ -267,6 +269,10 @@ module core_tb #(
 
       if (flush) begin
         n_flush++;
+`ifdef TRACE
+        $display("RET  --  cyc=%4d  *** FLUSH: ROB esvaziado, fetch -> %h ***",
+                 cyc, u_core.be_redirect_pc);
+`endif
         if (u_core.be_redirect_pc !== MTVEC)
           $fatal(1, "flush redirects to %h, expected mtvec %h",
                  u_core.be_redirect_pc, MTVEC);
@@ -283,16 +289,99 @@ module core_tb #(
             $fatal(1, "commit %0d (x%0d): value %h, expected %h",
                    n_commit_rd, commit_rd[k], val_by_tag[commit_tag[k]],
                    exp_val[n_commit_rd]);
+`ifdef TRACE
+          // (a) Log de retirada, em ordem de programa: uma linha por
+          // instrucao que faz commit de registrador.
+          $display("RET %3d  cyc=%4d lane=%0d  pc=%h  x%0d <- %h   tag=t%0d livre=t%0d",
+                   n_commit_rd, cyc, k, exp_pc[n_commit_rd], commit_rd[k],
+                   val_by_tag[commit_tag[k]], commit_tag[k], u_core.commit_old_tag[k]);
+`endif
           n_commit_rd++;
         end
-        if (st_commit[k]) n_commit_st++;
-        if (ld_commit[k]) n_commit_ld++;
+        if (st_commit[k]) begin
+          n_commit_st++;
+`ifdef TRACE
+          $display("RET  --  cyc=%4d lane=%0d  store", cyc, k);
+`endif
+        end
+        if (ld_commit[k]) begin
+          n_commit_ld++;
+`ifdef TRACE
+          $display("RET  --  cyc=%4d lane=%0d  load", cyc, k);
+`endif
+        end
       end
 
       if (u_core.dec_valid && !u_core.u_dispatch.rs_ok) seen_rs_stall = 1'b1;
       if (u_core.int_free == 4'd0) seen_int_full = 1'b1;
     end
   end
+
+`ifdef TRACE
+  // ---------------------------------------------------------------------------
+  // (b) Traço por ciclo: uma linha com o estado de cada estágio.
+  //
+  //   make test T=core IVFLAGS=-DTRACE
+  //
+  // Colunas:
+  //   pc       endereço que o Fetch manda à memória neste ciclo (slot 0)
+  //   fifo     bundles guardados no PipeFifo Fetch -> Decode
+  //   dec      out_valid/out_ready do Decode (1/0 = Decode oferece, Dispatch recusa)
+  //   disp     o Dispatch aceitou o bundle (tudo ou nada)
+  //   alloc    máscara de slots que alocaram entrada no ROB
+  //   ren      tags livres na free list do rename
+  //   rs       entradas livres em rs_int / rs_mem
+  //   ALU/AGU  emissão para a FU, com a tag de destino
+  //   WBn      barramento n de write-back: tag <- valor
+  //   C        commit de registrador: x<rd> com a tag
+  //   ST/LD    commit de store / de load
+  //   FLUSH    flush do ROB e o PC para onde o Fetch vai
+  //
+  // Os sinais internos vêm por referência hierárquica e são copiados para
+  // fios locais: ler `u_core.alu_req.dst_tag` dentro de um always é um select
+  // constante, que o Icarus reporta com "sorry:" (AGENTS.md).
+  //
+  // O ROB tem um barramento de debug próprio (DBG_EN = 1: trace_row_pc,
+  // trace_pdst, trace_stale...), que NÃO é usado aqui: em retire_base ele
+  // acompanha o commit, mas em retire_deep2 sai registrado (s2_rowpc), um
+  // ciclo atrasado em relação a commit_valid, então não serve como registro
+  // do commit do ciclo. O PC da linha RET vem do modelo de referência.
+  // ---------------------------------------------------------------------------
+  wire [3:0]  t_fifo_count  = u_core.u_fetch_q.count;
+  wire        t_disp_accept = u_core.u_dispatch.accept;
+  wire [6:0]  t_ren_free    = u_core.u_rename.free_count;
+  wire        t_alu_issue   = u_core.alu_rs_valid && u_core.alu_req_ready;
+  wire        t_agu_issue   = u_core.agu_rs_valid && u_core.agu_req_ready;
+  wire [TAG_W-1:0] t_alu_tag = u_core.alu_req.dst_tag;
+  wire [TAG_W-1:0] t_agu_tag = u_core.agu_req.dst_tag;
+  wire        t_alu_wr    = u_core.alu_req.wr_en;
+  wire        t_agu_wr    = u_core.agu_req.wr_en;
+
+  always @(negedge clk) begin
+    if (!reset) begin
+      $write("%4d  pc=%h fifo=%0d dec=%0d/%0d disp=%0d alloc=%b ren=%0d rs=%0d/%0d",
+             cyc, imem_addr[0], t_fifo_count, u_core.dec_valid, u_core.dec_ready,
+             t_disp_accept, u_core.rob_alloc, t_ren_free,
+             u_core.int_free, u_core.mem_free);
+      // Sem wr_en nao ha destino: NOP (rd = x0), store e desvio emitem com a
+      // tag irrelevante, e mostra-la como destino confunde o traco.
+      if (t_alu_issue)
+        if (t_alu_wr) $write("  ALU<-t%0d", t_alu_tag); else $write("  ALU(--)");
+      if (t_agu_issue)
+        if (t_agu_wr) $write("  AGU<-t%0d", t_agu_tag); else $write("  AGU(--)");
+      for (int p = 0; p < 3; p++)
+        if (u_core.wb_valid[p])
+          $write("  WB%0d=t%0d<-%h", p, u_core.wb_tag[p], u_core.wb_data[p]);
+      for (int k = 0; k < W; k++) begin
+        if (commit_valid[k]) $write("  C=x%0d/t%0d", commit_rd[k], commit_tag[k]);
+        if (st_commit[k])    $write("  ST");
+        if (ld_commit[k])    $write("  LD");
+      end
+      if (flush) $write("  *FLUSH -> %h", u_core.be_redirect_pc);
+      $write("\n");
+    end
+  end
+`endif
 
   // ---------------------------------------------------------------------------
   // Program and run

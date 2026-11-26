@@ -1,0 +1,13 @@
+{
+  "DESIGN_NAME": "PipeFifo_fq",
+  "VERILOG_FILES": ["dir::../../rtl/buffer/PipeFifo.sv",
+                    "dir::PipeFifo_fq.sv"],
+  "USE_SLANG": true,
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 25,
+  "SYNTH_ABC_BUFFERING": true,
+  "FP_SIZING": "relative",
+  "FP_CORE_UTIL": 30,
+  "PL_TARGET_DENSITY_PCT": 40,
+  "RUN_KLAYOUT_XOR": false
+}

@@ -39,7 +39,7 @@ PRF (0-1 ALU, 2-3 Branch Unit, 4-5 AGU) e 4 portas de resposta do ROB.
 
 | Porta | Dir. | Significado |
 |---|---|---|
-| `br_req_valid`, `br_req` | saída | pedido da `rs_int`, com os operandos já lidos do PRF |
+| `br_req_valid`, `br_req` | saída | pedido da `rs_int`, com os operandos já lidos do PRF. Fica em 0 no ciclo do flush |
 | `br_req_ready` | entrada | a Branch Unit aceita |
 | `br_resp_valid`, `br_resp` | entrada | resposta; vai ao `completion` (write-back 1, porta 1 do ROB) |
 | `br_resp_ready` | saída | sempre 1 |
@@ -47,17 +47,29 @@ PRF (0-1 ALU, 2-3 Branch Unit, 4-5 AGU) e 4 portas de resposta do ROB.
 
 Sem Branch Unit, ligue `br_req_ready = 0`: um desvio fica parado na RS INT.
 
+O `br_resp` não tem back-pressure para o core: o `br_resp_ready` é sempre 1 e o
+`completion` descarta o que chega no ciclo do flush. O `br_req`, por ser um
+pedido, tem: com `br_req_ready = 0` o desvio espera na RS.
+
 ### Memory
 
 | Porta | Dir. | Significado |
 |---|---|---|
-| `agu_resp_valid`, `agu_resp` | saída | resposta da AGU: endereço em `result`, `dst_tag`, `wr_en`, `age` |
+| `agu_resp_valid`, `agu_resp` | saída | resposta da AGU: endereço em `result`, `dst_tag`, `wr_en`, `age`. Fica em 0 no ciclo do flush |
 | `agu_is_load` | saída | a resposta é de um load (`resp_is_load` da `agu`) |
 | `lsu_resp_valid`, `lsu_resp` | entrada | dado do load, já estendido, com os metadados da resposta da AGU |
 | `lsu_resp_ready` | saída | sempre 1 |
 | `st_commit[W]`, `ld_commit[W]` | saída | stores e loads que o ROB fez commit neste ciclo |
 | `lsu_ready` | entrada | entrada `lsu_ready` do `retire_team` |
 | `flush` | saída | flush total; o Memory descarta as leituras em voo |
+
+**O Memory não tem back-pressure para o core.** O `completion` está sempre
+pronto, então a resposta da AGU aparece por exatamente um ciclo e o Memory
+precisa aceitá-la nesse ciclo; não existe um `agu_resp_ready` de volta. Em
+troca, o core garante que nada do caminho errado chega à porta: o
+`agu_resp_valid` já sai zerado no ciclo do flush, e o que estava em voo é
+descartado pelo próprio Memory, pelo `flush`. O `lsu_resp` também não tem
+back-pressure: o `lsu_resp_ready` é sempre 1.
 
 ### Observação
 
@@ -77,6 +89,15 @@ Sem Branch Unit, ligue `br_req_ready = 0`: um desvio fica parado na RS INT.
   flush (`req_valid && !flush`) e liga `flush_age = 0`. Nenhum pedido entra
   numa FU no ciclo do flush, o `completion` descarta o que sai dela nesse
   ciclo, e o registrador de saída esvazia na borda.
+- **Nada do caminho errado chega às portas que saem do core**, então nem a
+  Branch Unit nem o Memory precisam de regra própria. Os *pedidos* já nascem
+  zerados no flush dentro das RS (`found && !flush`, em `rs_int.sv` e
+  `rs_mem.sv`), e por isso o `br_req_valid` fica em 0 no ciclo do flush sem o
+  core fazer nada. A *resposta* da AGU é outro caso e o core a zera: a AGU só
+  mata a resposta retida se ela for mais nova que o `flush_age`, e aqui o
+  `flush_age` é 0 — a resposta de idade 0 (e as da metade do espaço de idade
+  que compara como mais velha) chegaria à porta. O `completion` já a descarta
+  por dentro; o Memory não deve enfileirá-la.
 - **CSR**: sem instruções de CSR executando ainda. `mtvec_wr_*` e `csr_rd_*`
   do `retire_team` estão desligados, e `rob_sys_kind` é 0 (o `uop_t` não
   carrega o tipo de instrução de sistema).

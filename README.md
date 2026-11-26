@@ -32,14 +32,45 @@ na wiki.
 | `make test` | Roda **todos** os testbenches (unitários e de integração) |
 | `make test-unit` | Roda só os de `tb/unit/` |
 | `make test-integration` | Roda só os de `tb/integration/` |
-| `make test T=register_rename` | Roda só um testbench |
-| `make test T="register_rename rob"` | Roda uma lista de testbenches |
-| `make register_rename` | Atalho: o nome do teste também é um alvo |
+| `make test T=core` | Roda só um testbench |
+| `make test T="decode fetch"` | Roda uma lista de testbenches |
+| `make core` | Atalho: o nome do teste também é um alvo |
+| `make test T=core IVFLAGS=-DTRACE` | Roda com o traço de execução ligado (veja abaixo) |
 | `make lint` | Verifica todo o RTL com o Verilator |
 | `make clean` | Apaga a pasta `build/` com os simuladores gerados |
 
 Um teste que passa imprime `PASS`. Se algum falhar, o `make` para, imprime
 `<teste> (<parâmetros>) FAIL` e termina com código de saída diferente de zero.
+
+### Vendo a execução
+
+`IVFLAGS` passa flags extras ao `iverilog`. Com `-DTRACE`, o
+`tb/integration/core_tb.sv` imprime duas coisas:
+
+```sh
+make test T=core IVFLAGS=-DTRACE
+```
+
+- **Uma linha por ciclo**, com o estado de cada estágio: PC buscado, ocupação
+  da FIFO, `valid`/`ready` do Decode, se o Dispatch aceitou o bundle e que
+  slots alocaram no ROB, tags livres no rename, entradas livres nas duas RS,
+  emissões para a ALU e para a AGU, os write-backs, os commits e o flush.
+- **Uma linha `RET` por retirada**, em ordem de programa: índice, ciclo, lane,
+  PC (do modelo de referência), `x<rd> <- valor`, a tag física usada e a tag
+  devolvida à free list; mais linhas para store, load e flush.
+
+```
+   3  pc=0000000000001024 fifo=1 dec=1/1 disp=1 alloc=111 ren=32 rs=8/4
+   4  pc=0000000000001030 fifo=1 dec=1/1 disp=1 alloc=111 ren=29 rs=5/4  ALU<-t32
+   5  pc=000000000000103c fifo=1 dec=1/1 disp=1 alloc=111 ren=27 rs=3/4  WB0=t32<-0000000000000005
+   6  pc=0000000000001048 fifo=1 dec=1/1 disp=1 alloc=111 ren=24 rs=0/4  ALU<-t37  C=x1/t32
+RET   0  cyc=   6 lane=0  pc=0000000000001000  x1 <- 0000000000000005   tag=t32 livre=t1
+```
+
+Cada conjunto de parâmetros do teste imprime o seu próprio traço, um depois
+do outro (o `core` roda com `DEEP2 = 0` e `DEEP2 = 1`). Para ver só um:
+`make core IVFLAGS=-DTRACE` continua rodando os dois; filtre a saída ou
+comente o `PARAMS_core` no Makefile.
 
 ### Adicionando um teste
 
