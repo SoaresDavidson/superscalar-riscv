@@ -12,10 +12,11 @@
 //   - Branch Unit: takes br_req from rs_int, answers on br_resp and drives
 //     the ROB redirect input;
 //   - Memory: takes the AGU response (address, tag, age; agu_is_load tells a
-//     load from a store) and answers loads on lsu_resp; st_commit/ld_commit
-//     tell it what the ROB committed. Store data has no path yet
-//     (rtl/execute/README.md), and the access size is not on the port yet:
-//     the Memory has no specification (docs/completion/Completion.md).
+//     load from a store) with its side fields (agu_store_data, agu_op,
+//     agu_lsq_idx, agu_color; wiki Memory.md, "Alocação no dispatch:
+//     interface") and answers loads on lsu_resp; st_commit/ld_commit tell it
+//     what the ROB committed. The store/load buffer reservation at dispatch
+//     is not wired yet: agu_lsq_idx and agu_color are 0 until it is.
 //
 // Flush: the ROB flush is total (it empties the pipeline at commit). Every
 // block flushes on it. The FUs only know the selective flush by age, so the
@@ -54,6 +55,10 @@ module core
     output logic                    agu_resp_valid,
     output fu_resp_t                agu_resp,
     output logic                    agu_is_load,
+    output xlen_t                   agu_store_data,  // store data (src2)
+    output exec_op_t                agu_op,          // access size, sign, direction
+    output lsq_idx_t                agu_lsq_idx,     // store/load buffer entry
+    output sb_ptr_t                 agu_color,       // load: last older store entry
     input  logic                    lsu_resp_valid,
     output logic                    lsu_resp_ready,
     input  fu_resp_t                lsu_resp,
@@ -141,6 +146,8 @@ module core
   fu_req_t                     alu_req;
   logic                        agu_rs_valid, agu_req_ready;
   fu_req_t                     agu_req;
+  lsq_idx_t                    agu_req_lsq_idx;
+  sb_ptr_t                     agu_req_color;
 
   // FUs -> completion
   logic                        alu_resp_valid, alu_resp_ready;
@@ -268,6 +275,7 @@ module core
       .agu_req_valid  (agu_rs_valid),
       .agu_req_ready,
       .agu_req,
+      .agu_req_lsq_idx, .agu_req_color,
       .agu_read_tag   (rd_tag[5:4]),
       .agu_read_valid (rd_valid[5:4]),
       .agu_read_data  (rd_data[5:4])
@@ -292,10 +300,16 @@ module core
       .req_valid    (agu_rs_valid && !flush),
       .req_ready    (agu_req_ready),
       .req          (agu_req),
+      .req_lsq_idx  (agu_req_lsq_idx),
+      .req_color    (agu_req_color),
       .resp_valid   (agu_resp_valid),
       .resp_ready   (agu_resp_ready),
       .resp         (agu_resp),
-      .resp_is_load (agu_is_load)
+      .resp_is_load (agu_is_load),
+      .resp_store_data (agu_store_data),
+      .resp_op      (agu_op),
+      .resp_lsq_idx (agu_lsq_idx),
+      .resp_color   (agu_color)
   );
 
   // ---------------------------------------------------------------------------

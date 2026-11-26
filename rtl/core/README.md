@@ -53,6 +53,10 @@ Sem Branch Unit, ligue `br_req_ready = 0`: um desvio fica parado na RS INT.
 |---|---|---|
 | `agu_resp_valid`, `agu_resp` | saída | resposta da AGU: endereço em `result`, `dst_tag`, `wr_en`, `age` |
 | `agu_is_load` | saída | a resposta é de um load (`resp_is_load` da `agu`) |
+| `agu_store_data` | saída | dado do store (`src2`), válido com `agu_resp_valid` |
+| `agu_op` | saída | `op` do acesso: tamanho, sinal e direção |
+| `agu_lsq_idx` | saída | entrada no store buffer ou no load buffer; 0 até o Dispatch reservar as entradas |
+| `agu_color` | saída | cor do load; 0 até o Dispatch reservar |
 | `lsu_resp_valid`, `lsu_resp` | entrada | dado do load, já estendido, com os metadados da resposta da AGU |
 | `lsu_resp_ready` | saída | sempre 1 |
 | `st_commit[W]`, `ld_commit[W]` | saída | stores e loads que o ROB fez commit neste ciclo |
@@ -85,9 +89,11 @@ Sem Branch Unit, ligue `br_req_ready = 0`: um desvio fica parado na RS INT.
 
 - **Branch Unit**: não existe. Com ela, o flush seletivo por `redirect.age`
   passa a valer para as FUs; as RS só têm flush total (Issue, item 3).
-- **Memory**: sem especificação. A porta não leva o tamanho do acesso nem o
-  dado do store. O `core_tb` tira o tamanho de uma tabela do `op` por `age`,
-  preenchida na alocação do ROB.
+- **Memory**: especificado na wiki (decisão 17), sem RTL. A porta já leva o
+  dado do store, o `op` e o índice e a cor da entrada; falta o Dispatch
+  reservar as entradas (`sb_*`/`lb_*`), então `agu_lsq_idx` e `agu_color`
+  saem em 0. O `core_tb` e o `core_isa_tb` tiram o tamanho do acesso de
+  `agu_op`.
 - **`out_slot_kill`** do Decode fica desligado: os slots mortos já chegam com
   `uop.valid = 0` (rtl/decode/README.md).
 
@@ -127,7 +133,7 @@ A suíte falha de propósito enquanto faltar RTL, por isso fica fora do
 | Programas | Motivo |
 |---|---|
 | `branch_not_taken`, `branch_taken`, `branch_loop`, `jalr`, `prog_sum_array`, `prog_memcpy` | sem Branch Unit, o primeiro desvio fica parado na RS INT |
-| `store_then_load`, `store_memory` | a porta do Memory não leva o dado do store |
+| `store_then_load`, `store_memory` | o modelo do Memory no testbench não tem store queue: os stores não chegam à memória de dados |
 | `ecall`, `ebreak` | o ROB faz commit de `ECALL`/`EBREAK` como instrução comum (`rob_sys_kind` = 0) |
 
 Para `ECALL` e `EBREAK`, a suíte só exige o que o RV64I fixa: nem a instrução

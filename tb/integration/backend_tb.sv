@@ -106,6 +106,9 @@ module backend_tb #(
   fu_req_t                     br_req;
   logic                        agu_req_valid, agu_req_ready;
   fu_req_t                     agu_req;
+  lsq_idx_t                    agu_req_lsq_idx;
+  sb_ptr_t                     agu_req_color;
+  exec_op_t                    agu_op;
 
   // FUs -> write-back / ROB
   logic                        alu_resp_valid, agu_resp_valid;
@@ -194,6 +197,7 @@ module backend_tb #(
       .wr (mem_wr), .wr_entry (mem_entry), .free (mem_free),
       .wb_valid, .wb_tag,
       .agu_req_valid, .agu_req_ready, .agu_req,
+      .agu_req_lsq_idx, .agu_req_color,
       .agu_read_tag   (rd_tag[5:4]),
       .agu_read_valid (rd_valid[5:4]),
       .agu_read_data  (rd_data[5:4])
@@ -210,7 +214,10 @@ module backend_tb #(
   agu u_agu (
       .clk, .reset, .flush, .flush_age ('0),
       .req_valid (agu_req_valid), .req_ready (agu_req_ready), .req (agu_req),
-      .resp_valid (agu_resp_valid), .resp_ready (1'b1), .resp (agu_resp)
+      .req_lsq_idx (agu_req_lsq_idx), .req_color (agu_req_color),
+      .resp_valid (agu_resp_valid), .resp_ready (1'b1), .resp (agu_resp),
+      .resp_is_load (), .resp_store_data (), .resp_op (agu_op),
+      .resp_lsq_idx (), .resp_color ()
   );
 
   // ---------------------------------------------------------------------------
@@ -228,18 +235,10 @@ module backend_tb #(
   assign wb_tag[2]   = lsu_resp.dst_tag;
   assign wb_data[2]  = lsu_resp.result;
 
-  // Op of every in-flight instruction, by age, recorded at dispatch. The AGU
-  // response does not carry the op, and the LSU model needs it.
-  exec_op_t op_by_age [256];
-
   // ROB responses. A load is done when its DATA arrives (port 3), not when
   // the AGU computes the address: the AGU answers the ROB (port 2) only for
-  // stores and for exceptions.
+  // stores and for exceptions. The op comes from the AGU's resp_op side port.
   logic agu_is_load;
-  exec_op_t agu_op;
-  age_t agu_age;
-  assign agu_age     = agu_resp.age;
-  assign agu_op      = exec_op_t'(op_by_age[agu_age]);
   assign agu_is_load = is_load(agu_op);
 
   logic [ROB_N-1:0]     resp_valid;
@@ -324,14 +323,6 @@ module backend_tb #(
     end
   end
 
-  // Record the op of every instruction the ROB takes.
-  always @(posedge clk) begin
-    for (int k = 0; k < W; k++) begin
-      uop_t u;
-      u = rob_uop[k];
-      if (rob_alloc[k]) op_by_age[rob_age[k]] <= u.op;
-    end
-  end
 
   // ---------------------------------------------------------------------------
   // Front end: bundles of 3 consecutive instructions from the program

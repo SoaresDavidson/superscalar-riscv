@@ -57,6 +57,7 @@ module core_tb #(
 
   logic      agu_resp_valid, agu_is_load;
   fu_resp_t  agu_resp;
+  exec_op_t  agu_op;
   logic      lsu_valid, lsu_resp_ready;
   fu_resp_t  lsu_resp;
   logic [W-1:0] st_commit, ld_commit;
@@ -74,6 +75,7 @@ module core_tb #(
       .br_resp_valid (1'b0), .br_resp_ready, .br_resp ('0),
       .br_redirect   ('0),
       .agu_resp_valid, .agu_resp, .agu_is_load,
+      .agu_store_data (), .agu_op, .agu_lsq_idx (), .agu_color (),
       .lsu_resp_valid (lsu_valid), .lsu_resp_ready, .lsu_resp,
       .st_commit, .ld_commit, .lsu_ready (1'b1),
       .flush,
@@ -107,16 +109,6 @@ module core_tb #(
     return d;   // AGU_LD
   endfunction
 
-  // Op of every instruction the ROB takes, by age: the size of the access.
-  exec_op_t op_by_age [256];
-  always @(posedge clk) begin
-    for (int k = 0; k < W; k++) begin
-      uop_t u;
-      u = u_core.rob_uop[k];
-      if (u_core.rob_alloc[k]) op_by_age[u_core.rob_age[k]] <= u.op;
-    end
-  end
-
   localparam int QN = 16;
   fu_resp_t q_resp [QN];
   int       q_due  [QN];
@@ -135,7 +127,7 @@ module core_tb #(
         if (agu_resp_valid && agu_is_load && !agu_resp.exception) begin
           fu_resp_t r;
           r        = agu_resp;
-          r.result = load_value(exec_op_t'(op_by_age[agu_resp.age]), agu_resp.result);
+          r.result = load_value(agu_op, agu_resp.result);   // size from the AGU
           q_resp[q_tail % QN] <= r;
           q_due[q_tail % QN]  <= cyc + LSU_LAT;
           q_tail <= q_tail + 1;

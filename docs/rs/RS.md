@@ -112,7 +112,9 @@ acontecem na borda do relógio.
   leitura acima; os demais campos (`op`, `imm`, `use_imm`, `pc`,
   `dst_tag`, `wr_en`, `age`, `pred_taken`, `pred_target`) são copiados. Na RS
   MEM, os campos que a entrada não tem (`use_imm`, `pc`, `pred_*`) vão em zero;
-  a AGU ignora `use_imm` (página Execute).
+  a AGU ignora `use_imm` (página Execute). Os campos `lsq_idx` e `color` da
+  entrada MEM (decisão 17) não cabem no `fu_req_t` e saem ao lado dele, por
+  `agu_req_lsq_idx` e `agu_req_color`.
 
 ### 4. Contagem de livres
 

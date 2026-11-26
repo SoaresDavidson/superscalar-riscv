@@ -57,6 +57,9 @@ package dispatch_pkg;
     tag_t     dst_tag;       // load destination
     logic     wr_en;         // 1 for a load with rd != x0, 0 for a store
     age_t     age;
+    // Memory (wiki decision 17): entry reserved at dispatch, passed to the AGU
+    lsq_idx_t lsq_idx;       // store buffer entry (store) or load buffer entry (load)
+    sb_ptr_t  color;         // load: last store buffer entry allocated before it
   } rs_mem_entry_t;
 
   // -------------------------------------------------------------------------

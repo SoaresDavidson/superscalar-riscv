@@ -82,6 +82,7 @@ pelos loads.
 | `*_req_valid` | saída | há uma instrução pronta para a FU |
 | `*_req_ready` | entrada | a FU aceita; transferência na borda com os dois em 1 |
 | `*_req` | saída | `fu_req_t` da instrução selecionada |
+| `agu_req_lsq_idx`, `agu_req_color` | saída | só na `rs_mem`: `lsq_idx` e `color` da entrada selecionada, ao lado do `agu_req` (decisão 17). Vão para `req_lsq_idx`/`req_color` da `agu` |
 | `*_read_tag[2]` | saída | tags das fontes 1 e 2 da instrução selecionada |
 | `*_read_valid[2]` | entrada | não usada: sai sempre 1 na emissão (`RS.md`) |
 | `*_read_data[2]` | entrada | valores lidos; vão para `src1` e `src2` do `fu_req_t` |

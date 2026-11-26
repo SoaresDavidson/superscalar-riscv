@@ -35,6 +35,12 @@ Unidades funcionais do estágio [Execute](https://github.com/SoaresDavidson/supe
 | `PRF_ENTRIES` | 64 — tamanho do banco físico. **Pendente:** é só o default do `PRFRename`, o grupo ainda não fixou |
 | `TAG_W` | `$clog2(PRF_ENTRIES)` — a **tag física**, que é o que as FUs transportam |
 | `AGE_W` | 8 — identificação de ordem da instrução (**proposta**) |
+| `SB_ENTRIES`, `LB_ENTRIES` | 12 e 16 — store buffer e load buffer (decisão 17, valores do P6) |
+| `SB_PTR_W`, `LB_PTR_W` | `$clog2(*_ENTRIES) + 1` — índice da entrada mais o bit de volta |
+| `lsq_idx_t` | entrada no store buffer ou no load buffer (`LSQ_IDX_W`, o maior dos dois) |
+| `sb_ptr_t` | entrada no store buffer: a cor de um load |
+
+Os quatro últimos só andam em portas laterais (`rs_mem` → `agu` → Memory); `uop_t`, `fu_req_t` e `fu_resp_t` não os carregam. São acréscimos ao pacote, sem mudar nenhum tipo existente.
 | `uop_t` | Micro-operação Decode → Rename/Dispatch, em registradores arquiteturais (sem tag) |
 | `exec_op_t` | Todas as operações do Execute; o Decode traduz o opcode direto para este enum |
 | `fu_of(op)` | Qual FU executa a operação (`FU_ALU`, `FU_BRANCH`, `FU_AGU`, `FU_NONE`) |
@@ -126,7 +132,16 @@ Calcula `endereço = src1 + imm` e sinaliza exceção de desalinhamento. O acess
 - **Exceção**: `exception=1` com `cause = CAUSE_LOAD_MISALIGNED` (loads) ou `CAUSE_STORE_MISALIGNED` (stores) quando desalinhado.
 - **`wr_en`**: repassado. Loads escrevem `rd` (valor vem depois, do Memory); stores chegam com `wr_en=0`.
 - **`resp_is_load`** (saída a mais que a ALU): 1 quando a resposta é de um load (`is_load(op)`), registrado junto com `resp` e válido com `resp_valid`. O `wr_en` não serve para isso, porque um load para `x0` também tem `wr_en=0`. O `completion` usa o sinal para responder ao ROB pela porta da AGU só em stores e exceções (Completion.md, ponto 1, opção A).
-- **Pendente**: o dado do store (`src2`) até o Memory ainda não tem caminho definido.
+- **Portas laterais para o Memory** (decisão 17; wiki [[Memory]], "Alocação no dispatch: interface"). Entram ao lado de `req` e saem registradas junto com `resp`, como o `resp_is_load`: com `resp_ready=0` ficam paradas, e no flush morrem com a instrução.
+
+  | Porta | Dir. | Conteúdo |
+  |---|---|---|
+  | `req_lsq_idx` | entrada | entrada reservada no store buffer ou no load buffer, vinda da `rs_mem` |
+  | `req_color` | entrada | cor do load, vinda da `rs_mem` |
+  | `resp_store_data` | saída | `src2` da requisição: o dado do store (etapa 1 da decisão 17) |
+  | `resp_op` | saída | `op` da requisição: tamanho, sinal e direção do acesso |
+  | `resp_lsq_idx` | saída | `req_lsq_idx` registrado |
+  | `resp_color` | saída | `req_color` registrado |
 
 ### Operações
 
@@ -134,4 +149,4 @@ Calcula `endereço = src1 + imm` e sinaliza exceção de desalinhamento. O acess
 
 ### Teste
 
-`make test T=agu`. O monitor confere também o `resp_is_load` de cada resposta. Casos: aritmética do endereço (offset positivo e negativo), alinhamento por tamanho, causa load vs store, desalinhamento vindo de `base+imm`, back-pressure, flush com mais antigo (sobrevive) e mais novo (morre), e 200 operações aleatórias contra modelo com back-pressure.
+`make test T=agu`. O monitor confere também o `resp_is_load`, o `resp_op`, o `resp_lsq_idx` e o `resp_color` de cada resposta, e o `resp_store_data` de cada store; os campos laterais mudam a cada requisição, para pegar uma resposta com campos de outra, e o caso de back-pressure confere que ficam estáveis enquanto a resposta está parada. Casos: aritmética do endereço (offset positivo e negativo), alinhamento por tamanho, causa load vs store, desalinhamento vindo de `base+imm`, back-pressure, flush com mais antigo (sobrevive) e mais novo (morre), e 200 operações aleatórias contra modelo com back-pressure.

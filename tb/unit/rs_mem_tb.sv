@@ -21,6 +21,10 @@
 //   M5  wakeup timing            M11 k-th instruction -> k-th free entry
 //   M6  store waits for its data M12 flush (with a write and a held request)
 //                                M13 tag reuse after flush
+//
+// Side fields (lsq_idx, color): ld() and st() derive them from the entry's
+// own tags, so a monitor checks on every valid request that agu_req_lsq_idx
+// and agu_req_color come from the same entry as agu_req.
 
 // The testbench checks only some fields of agu_req.
 /* verilator lint_off UNUSEDSIGNAL */
@@ -50,6 +54,8 @@ module rs_mem_tb;
   logic [1:0][TAG_W-1:0]      agu_read_tag;
   logic [1:0]                 agu_read_valid;
   logic [1:0][XLEN-1:0]       agu_read_data;
+  lsq_idx_t                   agu_req_lsq_idx;
+  sb_ptr_t                    agu_req_color;
 
   initial forever #5 clk = ~clk;
 
@@ -89,6 +95,26 @@ module rs_mem_tb;
   // ---------------------------------------------------------------------------
   // Entries, as Dispatch builds them.
   // ---------------------------------------------------------------------------
+  // Side fields, derived from the entry's tags (see the header).
+  function automatic lsq_idx_t ld_idx(tag_t dst);   return lsq_idx_t'(dst ^ 6'h15); endfunction
+  function automatic sb_ptr_t  ld_color(tag_t dst); return sb_ptr_t'(dst + 6'd3);   endfunction
+  function automatic lsq_idx_t st_idx(tag_t data);  return lsq_idx_t'(data ^ 6'h0A); endfunction
+
+  // Monitor: the side fields follow the entry that agu_req comes from.
+  always @(negedge clk) begin
+    if (!reset && agu_req_valid) begin
+      checks++;
+      if (agu_req.op == AGU_LD) begin
+        if (agu_req_lsq_idx !== ld_idx(agu_req.dst_tag) ||
+            agu_req_color   !== ld_color(agu_req.dst_tag))
+          $fatal(1, "[%s] load dst %0d: lsq_idx %0d color %0d from another entry",
+                 cur, agu_req.dst_tag, agu_req_lsq_idx, agu_req_color);
+      end else if (agu_req_lsq_idx !== st_idx(agu_read_tag[1]) || agu_req_color !== '0)
+        $fatal(1, "[%s] store data tag %0d: lsq_idx %0d color %0d from another entry",
+               cur, agu_read_tag[1], agu_req_lsq_idx, agu_req_color);
+    end
+  end
+
   // ld rd, 16(base): writes dst; src2 is x0.
   function automatic rs_mem_entry_t ld(tag_t dst, tag_t base, logic rb);
     rs_mem_entry_t e;
@@ -102,6 +128,8 @@ module rs_mem_tb;
     e.imm        = 64'd16;
     e.dst_tag    = dst;
     e.wr_en      = 1'b1;
+    e.lsq_idx    = ld_idx(dst);
+    e.color      = ld_color(dst);
     return e;
   endfunction
 
@@ -118,6 +146,8 @@ module rs_mem_tb;
     e.imm        = -64'sd8;
     e.dst_tag    = '0;
     e.wr_en      = 1'b0;
+    e.lsq_idx    = st_idx(data);
+    e.color      = '0;
     return e;
   endfunction
 

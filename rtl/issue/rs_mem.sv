@@ -3,7 +3,8 @@
 // Spec: docs/rs/RS.md.
 //
 // Same organization as rs_int (tags only, operands read at issue), with a
-// single selector. Loads use src1 (base); stores use src1 (base) and src2
+// single selector. The entry's store/load buffer index and color (wiki
+// decision 17) leave beside agu_req, on agu_req_lsq_idx/agu_req_color. Loads use src1 (base); stores use src1 (base) and src2
 // (data), and issue only with both ready. A load's src2 is x0, ready from
 // Dispatch, so the same readiness rule covers both.
 module rs_mem
@@ -34,6 +35,8 @@ module rs_mem
     output logic                       agu_req_valid,
     input  logic                       agu_req_ready,
     output fu_req_t                    agu_req,
+    output lsq_idx_t                   agu_req_lsq_idx,  // side fields of agu_req:
+    output sb_ptr_t                    agu_req_color,    // store/load buffer entry, color
     output logic [1:0][TAG_W-1:0]      agu_read_tag,
     /* verilator lint_off UNUSEDSIGNAL */
     input  logic [1:0]                 agu_read_valid,  // always 1 at issue, see RS.md
@@ -139,6 +142,11 @@ module rs_mem
 
   assign agu_read_tag[0] = sa.src1_tag;
   assign agu_read_tag[1] = sa.src2_tag;
+
+  // Memory side fields (wiki decision 17), beside agu_req: fu_req_t has no
+  // field for them. Valid with agu_req_valid.
+  assign agu_req_lsq_idx = sa.lsq_idx;
+  assign agu_req_color   = sa.color;
 
   // No request during flush: the selected instruction is on the wrong path.
   assign agu_req_valid = found && !flush;

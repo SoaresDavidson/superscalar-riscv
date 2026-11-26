@@ -12,10 +12,15 @@ module agu_tb;
   logic     resp_valid, resp_ready;
   fu_resp_t resp;
   logic     resp_is_load;
+  lsq_idx_t req_lsq_idx, resp_lsq_idx;
+  sb_ptr_t  req_color, resp_color;
+  xlen_t    resp_store_data;
+  exec_op_t resp_op;
 
   agu dut (.clk, .reset, .flush, .flush_age,
-           .req_valid, .req_ready, .req,
-           .resp_valid, .resp_ready, .resp, .resp_is_load);
+           .req_valid, .req_ready, .req, .req_lsq_idx, .req_color,
+           .resp_valid, .resp_ready, .resp, .resp_is_load,
+           .resp_store_data, .resp_op, .resp_lsq_idx, .resp_color);
 
   always #5 clk = ~clk;
 
@@ -28,11 +33,14 @@ module agu_tb;
   localparam int D = 4096;
   age_t e_age[D]; xlen_t e_addr[D]; tag_t e_rd[D]; logic e_wr[D];
   logic e_exc[D]; exc_cause_t e_cause[D]; logic e_st[D];
+  exec_op_t e_op[D]; xlen_t e_data[D]; lsq_idx_t e_idx[D]; sb_ptr_t e_color[D];
   integer head=0, tail=0;
   function automatic void push(input age_t a, input xlen_t ad, input tag_t rd,
                                input logic wr, input logic exc, input exc_cause_t c);
     e_age[tail]=a; e_addr[tail]=ad; e_rd[tail]=rd; e_wr[tail]=wr;
-    e_exc[tail]=exc; e_cause[tail]=c; e_st[tail]=!wr; tail++;
+    e_exc[tail]=exc; e_cause[tail]=c; e_st[tail]=!wr;
+    e_op[tail]=req.op; e_data[tail]=req.src2;
+    e_idx[tail]=req_lsq_idx; e_color[tail]=req_color; tail++;
   endfunction
   function automatic logic is_store_age(input integer i); return e_st[i]; endfunction
   function automatic void kill_younger(input age_t fa);
@@ -49,6 +57,11 @@ module agu_tb;
       check(resp.exception==e_exc[head], $sformatf("age %0d exc got %b exp %b", resp.age, resp.exception, e_exc[head]));
       check(resp_is_load==!is_store_age(head), $sformatf("age %0d resp_is_load got %b", resp.age, resp_is_load));
       if (e_exc[head]) check(resp.cause==e_cause[head], $sformatf("age %0d cause", resp.age));
+      check(resp_op==e_op[head],         $sformatf("age %0d resp_op got %0d exp %0d", resp.age, resp_op, e_op[head]));
+      check(resp_lsq_idx==e_idx[head],   $sformatf("age %0d resp_lsq_idx got %0d exp %0d", resp.age, resp_lsq_idx, e_idx[head]));
+      check(resp_color==e_color[head],   $sformatf("age %0d resp_color got %0d exp %0d", resp.age, resp_color, e_color[head]));
+      if (e_st[head])
+        check(resp_store_data==e_data[head], $sformatf("age %0d resp_store_data got %h exp %h", resp.age, resp_store_data, e_data[head]));
       head++;
     end
   end
@@ -84,13 +97,30 @@ module agu_tb;
     @(negedge clk);
     req='0; req.op=op; req.src1=base; req.imm=imm; req.use_imm=1'b1;
     req.dst_tag=rd; req.wr_en=hd; req.age=next_age;
+    side(next_age);
     req_valid=1;
     #1; while(!req_ready) begin @(negedge clk); #1; end
     push(next_age, addr, rd, hd, misal, cause); next_age++;
   endtask
   task automatic idle(); @(negedge clk); req_valid=0; endtask
 
+  // Side fields (store data, LSQ index, color), distinct per request so a
+  // response that carries another request's fields is caught. Derived from the
+  // age; the random phase overrides them with random values.
   integer seed = 909;
+  logic random_side = 0;
+  task automatic side(input age_t a);
+    if (random_side) begin
+      req.src2    = {$random(seed), $random(seed)};
+      req_lsq_idx = lsq_idx_t'($random(seed));
+      req_color   = sb_ptr_t'($random(seed));
+    end else begin
+      req.src2    = {8{a}} ^ 64'hA5A5_0000_5A5A_0000;
+      req_lsq_idx = lsq_idx_t'(a);
+      req_color   = sb_ptr_t'(a + 8'd7);
+    end
+  endtask
+
   logic random_bp = 0;
   integer bp_seed = 55;
   always @(negedge clk) if (random_bp) resp_ready = ($random(bp_seed)%4)!=0;
@@ -105,6 +135,7 @@ module agu_tb;
 
   initial begin
     reset=1; flush=0; flush_age=0; req_valid=0; req='0; resp_ready=1;
+    req_lsq_idx='0; req_color='0;
     repeat(2) @(negedge clk); reset=0; #1;
     check(resp_valid==0, "after reset resp_valid=0");
     check(req_ready==1,  "after reset req_ready=1");
@@ -137,16 +168,19 @@ module agu_tb;
     resp_ready=0;
     send(AGU_LW, 64'h4000, 64'd0, 5'd5);         // A accepted (output was empty)
     @(negedge clk);                               // A now held in the output reg
-    req='0; req.op=AGU_LW; req.src1=64'h4008; req.use_imm=1'b1;
-    req.dst_tag=5'd5; req.wr_en=1'b1; req.age=next_age; req_valid=1'b1;  // present B
+    req='0; req.op=AGU_SD; req.src1=64'h4008; req.use_imm=1'b1;
+    req.dst_tag=5'd0; req.wr_en=1'b0; req.age=next_age; side(next_age);
+    req_valid=1'b1;                               // present B (a store)
     repeat(3) begin #1;
       check(req_ready==0,  "bp: req_ready 0 while output held");
       check(resp_valid==1 && resp.result==64'h4000, "bp: held result stable");
+      check(resp_op==AGU_LW && resp_lsq_idx==e_idx[head] && resp_color==e_color[head],
+            "bp: held side fields stable");
       @(negedge clk);
     end
     resp_ready=1;                                 // A leaves, B is accepted
     #1; check(req_ready==1, "bp: req_ready rises with resp_ready");
-    push(next_age, 64'h4008, 5'd5, 1'b1, 1'b0, CAUSE_NONE); next_age++;
+    push(next_age, 64'h4008, 5'd0, 1'b0, 1'b0, CAUSE_NONE); next_age++;
     idle();
     #1; check(resp_valid==1 && resp.result==64'h4008, "bp: B follows A");
     repeat(2) @(negedge clk);
@@ -168,7 +202,7 @@ module agu_tb;
     repeat(2) @(negedge clk);
 
     // 7. random with back-pressure
-    next_age=0; random_bp=1;
+    next_age=0; random_bp=1; random_side=1;
     repeat(200) begin
       exec_op_t op; xlen_t base, imm;
       op=rand_mem_op();

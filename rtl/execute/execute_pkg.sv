@@ -35,9 +35,23 @@ package execute_pkg;
   // is the single place to change -- TAG_W follows.
   parameter int unsigned PRF_ENTRIES = 64;
 
+  // Store buffer and load buffer sizes (wiki decision 17, P6 values). Each
+  // load and store reserves an entry at dispatch and carries its index, plus
+  // the wrap bit, through the RS MEM and the AGU to the Memory (wiki Memory.md,
+  // "Alocação no dispatch: interface"). The color of a load is the store buffer
+  // index of the last store allocated before it. These types only travel on
+  // side ports; uop_t, fu_req_t and fu_resp_t do not carry them.
+  parameter int unsigned SB_ENTRIES = 12;
+  parameter int unsigned LB_ENTRIES = 16;
+  localparam int unsigned SB_PTR_W  = $clog2(SB_ENTRIES) + 1;  // index + wrap bit
+  localparam int unsigned LB_PTR_W  = $clog2(LB_ENTRIES) + 1;
+  localparam int unsigned LSQ_IDX_W = (SB_PTR_W > LB_PTR_W) ? SB_PTR_W : LB_PTR_W;
+
   typedef logic [XLEN-1:0]  xlen_t;
   typedef logic [REG_W-1:0] reg_t;   // architectural register number
   typedef logic [AGE_W-1:0] age_t;
+  typedef logic [LSQ_IDX_W-1:0] lsq_idx_t;  // store buffer or load buffer entry
+  typedef logic [SB_PTR_W-1:0]  sb_ptr_t;   // store buffer entry: a load's color
 
   localparam int unsigned TAG_W = $clog2(PRF_ENTRIES);
   typedef logic [TAG_W-1:0] tag_t;   // physical register (rename tag)
